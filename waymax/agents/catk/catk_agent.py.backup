@@ -1,0 +1,60 @@
+import jax
+import torch
+
+from typing import Optional, Callable
+from waymax import datatypes
+from waymax.agents import sim_agent
+from waymax import datatypes
+
+# from waymax.agents.catk.smart.model.smart import SMART
+from waymax.agents.catk.smart.modules.smart_decoder import SMARTDecoder
+from waymax.agents.catk.smart.tokens.token_processor import TokenProcessor
+
+class CATK_Simulator(sim_agent.SimAgentActor):
+    """CATK Simulator class."""
+    def __init__(
+        self,
+        is_controlled_func: Optional[
+            Callable[[datatypes.SimulatorState], jax.Array]
+        ] = None,
+        invalidate_on_end: bool = False,
+    ):
+        super().__init__(is_controlled_func=is_controlled_func)
+        self.invalidate_on_end = invalidate_on_end
+
+        # loading model directly here is not a good practice, but for simplicity we do it here.
+        # model parameters at '/home/sunghjopnam/Documents/Git/LatentDriver/checkpoints/catk_trained_parameter'
+        # refer the detail of CAT-K model to '/home/sunghjopnam/Documents/Git/catk'
+        # I'm pretty sure hydra will mess up with waymax's config system, so we have to hardcode the model loading here. but you can implementw with hydra if you want.
+        self.model = SMARTDecoder # load your pre-trained CAT-K model here with hydra
+        self.token_processor = TokenProcessor()  # load your token processor here
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    def update_trajectory(
+        self, state: datatypes.SimulatorState
+    ) -> datatypes.TrajectoryUpdate:
+        """Returns a trajectory update of shape (..., num_objects, 1)."""
+        # new_speed = (..., num_objects), new_valid = (..., num_objects)
+        next_traj = self._get_next_trajectory_by_projection(
+            state.log_trajectory,
+            state.current_sim_trajectory,
+        )
+
+        return datatypes.TrajectoryUpdate(
+            x=next_traj.x,
+            y=next_traj.y,
+            yaw=next_traj.yaw,
+            vel_x=next_traj.vel_x,
+            vel_y=next_traj.vel_y,
+            valid=next_traj.valid,
+        )
+    def _get_next_trajectory_by_projection(
+        self,
+        log_traj: datatypes.Trajectory,
+        cur_sim_traj: datatypes.Trajectory,
+        ) -> datatypes.Trajectory:
+        """Projects the log trajectory to get the next trajectory."""
+        # TODO: implement the projection logic with cat-k here (doesn't have to be implemented with hydra)
+        # TODO: cat-k should rollout the trajectory for multiple timesteps, but here we only need the next timestep. for every dynamic object in the scene, we can extract the relevant data from log_traj and cur_sim_traj and feed them into cat-k model to get the next position and velocity.
+        next_traj = cur_sim_traj  # Placeholder, replace with actual projection logic
+        return next_traj

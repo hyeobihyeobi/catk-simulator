@@ -1,0 +1,83 @@
+[2025-10-28 14:54:35,762][jax._src.xla_bridge][INFO] - Unable to initialize backend 'rocm': NOT_FOUND: Could not find registered platform with name: "rocm". Available platform names are: Interpreter Host CUDA
+[2025-10-28 14:54:35,762][jax._src.xla_bridge][INFO] - Unable to initialize backend 'tpu': module 'jaxlib.xla_extension' has no attribute 'get_tpu_client'
+[2025-10-28 14:54:35,762][jax._src.xla_bridge][INFO] - Unable to initialize backend 'plugin': xla_extension has no attributes named get_plugin_device_client. Compile TensorFlow with //tensorflow/compiler/xla/python:enable_plugin_device set to true (defaults to false) to enable this.
+[2025-10-28 14:55:39,742][jax._src.xla_bridge][INFO] - Unable to initialize backend 'cuda': FAILED_PRECONDITION: No visible GPU devices.
+[2025-10-28 14:55:39,751][jax._src.xla_bridge][INFO] - Unable to initialize backend 'rocm': NOT_FOUND: Could not find registered platform with name: "rocm". Available platform names are: Interpreter Host CUDA
+[2025-10-28 14:55:39,751][jax._src.xla_bridge][INFO] - Unable to initialize backend 'tpu': module 'jaxlib.xla_extension' has no attribute 'get_tpu_client'
+[2025-10-28 14:55:39,751][jax._src.xla_bridge][INFO] - Unable to initialize backend 'plugin': xla_extension has no attributes named get_plugin_device_client. Compile TensorFlow with //tensorflow/compiler/xla/python:enable_plugin_device set to true (defaults to false) to enable this.
+[2025-10-28 14:55:39,751][jax._src.xla_bridge][WARNING] - No GPU/TPU found, falling back to CPU. (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
+[2025-10-28 14:55:39,761][jax._src.xla_bridge][INFO] - Unable to initialize backend 'cuda': FAILED_PRECONDITION: No visible GPU devices.
+[2025-10-28 14:55:39,762][jax._src.xla_bridge][INFO] - Unable to initialize backend 'rocm': NOT_FOUND: Could not find registered platform with name: "rocm". Available platform names are: Interpreter Host CUDA
+[2025-10-28 14:55:39,762][jax._src.xla_bridge][INFO] - Unable to initialize backend 'tpu': module 'jaxlib.xla_extension' has no attribute 'get_tpu_client'
+[2025-10-28 14:55:39,762][jax._src.xla_bridge][INFO] - Unable to initialize backend 'plugin': xla_extension has no attributes named get_plugin_device_client. Compile TensorFlow with //tensorflow/compiler/xla/python:enable_plugin_device set to true (defaults to false) to enable this.
+[2025-10-28 14:55:39,762][jax._src.xla_bridge][WARNING] - No GPU/TPU found, falling back to CPU. (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
+[2025-10-28 14:55:39,781][jax._src.xla_bridge][INFO] - Unable to initialize backend 'cuda': FAILED_PRECONDITION: No visible GPU devices.
+[2025-10-28 14:55:39,781][jax._src.xla_bridge][INFO] - Unable to initialize backend 'rocm': NOT_FOUND: Could not find registered platform with name: "rocm". Available platform names are: Interpreter Host CUDA
+[2025-10-28 14:55:39,782][jax._src.xla_bridge][INFO] - Unable to initialize backend 'tpu': module 'jaxlib.xla_extension' has no attribute 'get_tpu_client'
+[2025-10-28 14:55:39,782][jax._src.xla_bridge][INFO] - Unable to initialize backend 'plugin': xla_extension has no attributes named get_plugin_device_client. Compile TensorFlow with //tensorflow/compiler/xla/python:enable_plugin_device set to true (defaults to false) to enable this.
+[2025-10-28 14:55:39,782][jax._src.xla_bridge][WARNING] - No GPU/TPU found, falling back to CPU. (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
+[2025-10-28 14:55:39,800][jax._src.xla_bridge][INFO] - Unable to initialize backend 'cuda': FAILED_PRECONDITION: No visible GPU devices.
+[2025-10-28 14:55:39,800][jax._src.xla_bridge][INFO] - Unable to initialize backend 'rocm': NOT_FOUND: Could not find registered platform with name: "rocm". Available platform names are: Interpreter Host CUDA
+[2025-10-28 14:55:39,800][jax._src.xla_bridge][INFO] - Unable to initialize backend 'tpu': module 'jaxlib.xla_extension' has no attribute 'get_tpu_client'
+[2025-10-28 14:55:39,801][jax._src.xla_bridge][INFO] - Unable to initialize backend 'plugin': xla_extension has no attributes named get_plugin_device_client. Compile TensorFlow with //tensorflow/compiler/xla/python:enable_plugin_device set to true (defaults to false) to enable this.
+[2025-10-28 14:55:39,801][jax._src.xla_bridge][WARNING] - No GPU/TPU found, falling back to CPU. (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
+[2025-10-28 14:55:39,819][jax._src.xla_bridge][INFO] - Unable to initialize backend 'cuda': FAILED_PRECONDITION: No visible GPU devices.
+[2025-10-28 14:55:39,820][jax._src.xla_bridge][INFO] - Unable to initialize backend 'rocm': NOT_FOUND: Could not find registered platform with name: "rocm". Available platform names are: Interpreter Host CUDA
+[2025-10-28 14:55:39,820][jax._src.xla_bridge][INFO] - Unable to initialize backend 'tpu': module 'jaxlib.xla_extension' has no attribute 'get_tpu_client'
+[2025-10-28 14:55:39,820][jax._src.xla_bridge][INFO] - Unable to initialize backend 'plugin': xla_extension has no attributes named get_plugin_device_client. Compile TensorFlow with //tensorflow/compiler/xla/python:enable_plugin_device set to true (defaults to false) to enable this.
+[2025-10-28 14:55:39,820][jax._src.xla_bridge][WARNING] - No GPU/TPU found, falling back to CPU. (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
+[2025-10-28 14:55:39,840][jax._src.xla_bridge][INFO] - Unable to initialize backend 'cuda': FAILED_PRECONDITION: No visible GPU devices.
+[2025-10-28 14:55:39,841][jax._src.xla_bridge][INFO] - Unable to initialize backend 'rocm': NOT_FOUND: Could not find registered platform with name: "rocm". Available platform names are: Interpreter Host CUDA
+[2025-10-28 14:55:39,841][jax._src.xla_bridge][INFO] - Unable to initialize backend 'tpu': module 'jaxlib.xla_extension' has no attribute 'get_tpu_client'
+[2025-10-28 14:55:39,841][jax._src.xla_bridge][INFO] - Unable to initialize backend 'plugin': xla_extension has no attributes named get_plugin_device_client. Compile TensorFlow with //tensorflow/compiler/xla/python:enable_plugin_device set to true (defaults to false) to enable this.
+[2025-10-28 14:55:39,841][jax._src.xla_bridge][WARNING] - No GPU/TPU found, falling back to CPU. (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
+[2025-10-28 14:55:39,864][jax._src.xla_bridge][INFO] - Unable to initialize backend 'cuda': FAILED_PRECONDITION: No visible GPU devices.
+[2025-10-28 14:55:39,864][jax._src.xla_bridge][INFO] - Unable to initialize backend 'rocm': NOT_FOUND: Could not find registered platform with name: "rocm". Available platform names are: Interpreter Host CUDA
+[2025-10-28 14:55:39,864][jax._src.xla_bridge][INFO] - Unable to initialize backend 'tpu': module 'jaxlib.xla_extension' has no attribute 'get_tpu_client'
+[2025-10-28 14:55:39,865][jax._src.xla_bridge][INFO] - Unable to initialize backend 'plugin': xla_extension has no attributes named get_plugin_device_client. Compile TensorFlow with //tensorflow/compiler/xla/python:enable_plugin_device set to true (defaults to false) to enable this.
+[2025-10-28 14:55:39,865][jax._src.xla_bridge][WARNING] - No GPU/TPU found, falling back to CPU. (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
+[2025-10-28 14:55:39,898][jax._src.xla_bridge][INFO] - Unable to initialize backend 'cuda': FAILED_PRECONDITION: No visible GPU devices.
+[2025-10-28 14:55:39,898][jax._src.xla_bridge][INFO] - Unable to initialize backend 'rocm': NOT_FOUND: Could not find registered platform with name: "rocm". Available platform names are: Interpreter Host CUDA
+[2025-10-28 14:55:39,899][jax._src.xla_bridge][INFO] - Unable to initialize backend 'tpu': module 'jaxlib.xla_extension' has no attribute 'get_tpu_client'
+[2025-10-28 14:55:39,899][jax._src.xla_bridge][INFO] - Unable to initialize backend 'plugin': xla_extension has no attributes named get_plugin_device_client. Compile TensorFlow with //tensorflow/compiler/xla/python:enable_plugin_device set to true (defaults to false) to enable this.
+[2025-10-28 14:55:39,899][jax._src.xla_bridge][WARNING] - No GPU/TPU found, falling back to CPU. (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
+[2025-10-28 14:55:39,925][jax._src.xla_bridge][INFO] - Unable to initialize backend 'cuda': FAILED_PRECONDITION: No visible GPU devices.
+[2025-10-28 14:55:39,926][jax._src.xla_bridge][INFO] - Unable to initialize backend 'rocm': NOT_FOUND: Could not find registered platform with name: "rocm". Available platform names are: Interpreter Host CUDA
+[2025-10-28 14:55:39,926][jax._src.xla_bridge][INFO] - Unable to initialize backend 'tpu': module 'jaxlib.xla_extension' has no attribute 'get_tpu_client'
+[2025-10-28 14:55:39,926][jax._src.xla_bridge][INFO] - Unable to initialize backend 'plugin': xla_extension has no attributes named get_plugin_device_client. Compile TensorFlow with //tensorflow/compiler/xla/python:enable_plugin_device set to true (defaults to false) to enable this.
+[2025-10-28 14:55:39,926][jax._src.xla_bridge][WARNING] - No GPU/TPU found, falling back to CPU. (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
+[2025-10-28 14:55:39,953][jax._src.xla_bridge][INFO] - Unable to initialize backend 'cuda': FAILED_PRECONDITION: No visible GPU devices.
+[2025-10-28 14:55:39,954][jax._src.xla_bridge][INFO] - Unable to initialize backend 'rocm': NOT_FOUND: Could not find registered platform with name: "rocm". Available platform names are: Interpreter Host CUDA
+[2025-10-28 14:55:39,955][jax._src.xla_bridge][INFO] - Unable to initialize backend 'tpu': module 'jaxlib.xla_extension' has no attribute 'get_tpu_client'
+[2025-10-28 14:55:39,955][jax._src.xla_bridge][INFO] - Unable to initialize backend 'plugin': xla_extension has no attributes named get_plugin_device_client. Compile TensorFlow with //tensorflow/compiler/xla/python:enable_plugin_device set to true (defaults to false) to enable this.
+[2025-10-28 14:55:39,955][jax._src.xla_bridge][WARNING] - No GPU/TPU found, falling back to CPU. (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
+[2025-10-28 14:55:39,979][jax._src.xla_bridge][INFO] - Unable to initialize backend 'cuda': FAILED_PRECONDITION: No visible GPU devices.
+[2025-10-28 14:55:39,979][jax._src.xla_bridge][INFO] - Unable to initialize backend 'rocm': NOT_FOUND: Could not find registered platform with name: "rocm". Available platform names are: Interpreter Host CUDA
+[2025-10-28 14:55:39,980][jax._src.xla_bridge][INFO] - Unable to initialize backend 'tpu': module 'jaxlib.xla_extension' has no attribute 'get_tpu_client'
+[2025-10-28 14:55:39,980][jax._src.xla_bridge][INFO] - Unable to initialize backend 'plugin': xla_extension has no attributes named get_plugin_device_client. Compile TensorFlow with //tensorflow/compiler/xla/python:enable_plugin_device set to true (defaults to false) to enable this.
+[2025-10-28 14:55:39,980][jax._src.xla_bridge][WARNING] - No GPU/TPU found, falling back to CPU. (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
+[2025-10-28 14:55:40,004][jax._src.xla_bridge][INFO] - Unable to initialize backend 'cuda': FAILED_PRECONDITION: No visible GPU devices.
+[2025-10-28 14:55:40,005][jax._src.xla_bridge][INFO] - Unable to initialize backend 'rocm': NOT_FOUND: Could not find registered platform with name: "rocm". Available platform names are: Interpreter Host CUDA
+[2025-10-28 14:55:40,005][jax._src.xla_bridge][INFO] - Unable to initialize backend 'tpu': module 'jaxlib.xla_extension' has no attribute 'get_tpu_client'
+[2025-10-28 14:55:40,005][jax._src.xla_bridge][INFO] - Unable to initialize backend 'plugin': xla_extension has no attributes named get_plugin_device_client. Compile TensorFlow with //tensorflow/compiler/xla/python:enable_plugin_device set to true (defaults to false) to enable this.
+[2025-10-28 14:55:40,005][jax._src.xla_bridge][WARNING] - No GPU/TPU found, falling back to CPU. (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
+[2025-10-28 14:55:40,031][jax._src.xla_bridge][INFO] - Unable to initialize backend 'cuda': FAILED_PRECONDITION: No visible GPU devices.
+[2025-10-28 14:55:40,031][jax._src.xla_bridge][INFO] - Unable to initialize backend 'rocm': NOT_FOUND: Could not find registered platform with name: "rocm". Available platform names are: Interpreter Host CUDA
+[2025-10-28 14:55:40,032][jax._src.xla_bridge][INFO] - Unable to initialize backend 'tpu': module 'jaxlib.xla_extension' has no attribute 'get_tpu_client'
+[2025-10-28 14:55:40,032][jax._src.xla_bridge][INFO] - Unable to initialize backend 'plugin': xla_extension has no attributes named get_plugin_device_client. Compile TensorFlow with //tensorflow/compiler/xla/python:enable_plugin_device set to true (defaults to false) to enable this.
+[2025-10-28 14:55:40,032][jax._src.xla_bridge][WARNING] - No GPU/TPU found, falling back to CPU. (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
+[2025-10-28 14:55:40,054][jax._src.xla_bridge][INFO] - Unable to initialize backend 'cuda': FAILED_PRECONDITION: No visible GPU devices.
+[2025-10-28 14:55:40,055][jax._src.xla_bridge][INFO] - Unable to initialize backend 'rocm': NOT_FOUND: Could not find registered platform with name: "rocm". Available platform names are: Interpreter Host CUDA
+[2025-10-28 14:55:40,056][jax._src.xla_bridge][INFO] - Unable to initialize backend 'tpu': module 'jaxlib.xla_extension' has no attribute 'get_tpu_client'
+[2025-10-28 14:55:40,056][jax._src.xla_bridge][INFO] - Unable to initialize backend 'plugin': xla_extension has no attributes named get_plugin_device_client. Compile TensorFlow with //tensorflow/compiler/xla/python:enable_plugin_device set to true (defaults to false) to enable this.
+[2025-10-28 14:55:40,056][jax._src.xla_bridge][WARNING] - No GPU/TPU found, falling back to CPU. (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
+[2025-10-28 14:55:40,083][jax._src.xla_bridge][INFO] - Unable to initialize backend 'cuda': FAILED_PRECONDITION: No visible GPU devices.
+[2025-10-28 14:55:40,084][jax._src.xla_bridge][INFO] - Unable to initialize backend 'rocm': NOT_FOUND: Could not find registered platform with name: "rocm". Available platform names are: Interpreter Host CUDA
+[2025-10-28 14:55:40,084][jax._src.xla_bridge][INFO] - Unable to initialize backend 'tpu': module 'jaxlib.xla_extension' has no attribute 'get_tpu_client'
+[2025-10-28 14:55:40,084][jax._src.xla_bridge][INFO] - Unable to initialize backend 'plugin': xla_extension has no attributes named get_plugin_device_client. Compile TensorFlow with //tensorflow/compiler/xla/python:enable_plugin_device set to true (defaults to false) to enable this.
+[2025-10-28 14:55:40,084][jax._src.xla_bridge][WARNING] - No GPU/TPU found, falling back to CPU. (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
+[2025-10-28 14:55:40,120][jax._src.xla_bridge][INFO] - Unable to initialize backend 'cuda': FAILED_PRECONDITION: No visible GPU devices.
+[2025-10-28 14:55:40,120][jax._src.xla_bridge][INFO] - Unable to initialize backend 'rocm': NOT_FOUND: Could not find registered platform with name: "rocm". Available platform names are: Interpreter Host CUDA
+[2025-10-28 14:55:40,123][jax._src.xla_bridge][INFO] - Unable to initialize backend 'tpu': module 'jaxlib.xla_extension' has no attribute 'get_tpu_client'
+[2025-10-28 14:55:40,124][jax._src.xla_bridge][INFO] - Unable to initialize backend 'plugin': xla_extension has no attributes named get_plugin_device_client. Compile TensorFlow with //tensorflow/compiler/xla/python:enable_plugin_device set to true (defaults to false) to enable this.
+[2025-10-28 14:55:40,124][jax._src.xla_bridge][WARNING] - No GPU/TPU found, falling back to CPU. (Set TF_CPP_MIN_LOG_LEVEL=0 and rerun for more info.)
