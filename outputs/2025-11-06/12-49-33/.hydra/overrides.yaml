@@ -1,0 +1,7 @@
+- ++waymax_conf.path='${WOMD_VAL_PATH}'
+- ++data_conf.path_to_processed_map_route='${PRE_PROCESS_VAL_PATH}'
+- ++metric_conf.intention_label_path='${INTENTION_VAL_PATH}'
+- ++batch_dims=[4,125]
+- ++method.num_of_decoder=3
+- ++method.ckpt_path=checkpoints/lantentdriver_t2_J3.ckpt
+- ++ego_control_setting.npc_policy_type=catk

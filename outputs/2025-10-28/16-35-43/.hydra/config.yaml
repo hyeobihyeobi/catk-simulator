@@ -1,0 +1,104 @@
+method:
+  encoder:
+    name: bert
+    type_name: bert-mini
+    online: true
+    attributes: 6
+    embedding_type: ${action_space.dynamic_type}
+  world:
+    name: latent_world_model
+    act_dim: 3
+    enc_hidden_size: 256
+    hidden_size: 256
+    ordering: 1
+    max_ep_len: 81
+    representation_query_num: 32
+    reconstruction_query_num: 189
+    GPT_conf:
+      n_layer: 8
+      n_head: 8
+      n_inner: null
+      activation_function: relu
+      n_positions: 1024
+      resid_pdrop: 0.1
+      attn_pdrop: 0.1
+      max_token: 1024
+  model_name: latentdriver
+  ckpt_path: null
+  action_space:
+    dynamic_type: waypoint
+    type: continuous
+    action_ranges:
+    - - -0.14
+      - 6
+    - - -0.35
+      - 0.35
+    - - -0.15
+      - 0.15
+    bins:
+    - 13
+    - 13
+    - 13
+  max_len: 2
+  mode: 6
+  num_of_decoder: 3
+  est_layer: 0
+  max_length: ${max_len}
+  eval_context_length: ${max_len}
+  function: enc-LWM-MPP
+  pretrain_world: null
+  freeze_world: false
+  pretrain_enc: null
+  freeze_enc: false
+  max_epochs: 10
+  learning_rate: 0.0001
+  train_batch_size: 5000
+  grad_clip_norm: null
+  optimizer:
+    type: Adam
+  scheduler:
+    type: CosineAnnealingLR
+  strategy: ddp_find_unused_parameters_true
+vis: false
+rewards:
+  sdc_progression: 0.0
+  offroad: -1.0
+  overlap: -1.0
+  sdc_kinematic_infeasibility: 0.0
+  log_divergence: 0.0
+  speed_divergence: -1.0
+  sdc_wrongway: -1.0
+waymax_conf:
+  path: /media/sunghjopnam/HDD_4T/waymo_open_dataset_motion_v_1_3_0/uncompressed/tf_example/training/training_tfexample.tfrecord@1000
+  max_num_objects: 128
+  max_num_rg_points: 30000
+  num_shards: 4
+  repeat: 1
+  distributed: true
+  drop_remainder: true
+  customized: false
+ego_control_setting:
+  ego_policy_type: custom
+  npc_policy_type: expert
+  action_type: ${action_space.dynamic_type}
+  action_space: ${action_space}
+metric_conf:
+  arrival_thres:
+  - 0.75
+  - 0.8
+  - 0.85
+  - 0.9
+  - 0.95
+  intention_label_path: /home/sunghjopnam/Documents/Git/LatentDriver/train_intention_label
+data_conf:
+  max_map_segments: 1000
+  max_roadgraph_segments: 40
+  max_route_segments: 20
+  FOV:
+  - 80
+  - 20
+  path_to_processed_map_route: /home/sunghjopnam/Documents/Git/LatentDriver/train_preprocessed_path
+batch_dims:
+- 1
+- 50
+save_path: /home/sunghjopnam/Documents/Git/LatentDriver/train_data

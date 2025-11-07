@@ -1,0 +1,321 @@
+import os
+import jax
+import jax.numpy as jnp
+import numpy as np
+import torch
+from torch import Tensor
+from torch_geometric.data import HeteroData
+from typing import Optional, Callable, Tuple
+from omegaconf import OmegaConf
+
+from waymax import datatypes
+from waymax.agents import catk_sim_agent
+from waymax.datatypes.constant import TIME_INTERVAL
+
+from waymax.agents.catk.smart.model.smart import SMART  # kept for reference
+from waymax.agents.catk.smart.modules.smart_decoder import SMARTDecoder
+from waymax.agents.catk.smart.tokens.token_processor import TokenProcessor
+
+
+def _to_torch(x) -> Tensor:
+    if isinstance(x, torch.Tensor):
+        return x
+    if hasattr(x, 'dtype') and 'jax' in type(x).__module__:
+        x = jax.device_get(x)
+    x = jnp.array(x)
+    t = torch.from_numpy(x)
+    return t
+
+
+def _object_type_to_catk_types(obj_types_np: jnp.ndarray) -> torch.Tensor:
+    # Waymax ObjectTypeIds: UNSET=0, VEHICLE=1, PEDESTRIAN=2, CYCLIST=3
+    m = jnp.zeros_like(obj_types_np)
+#     m[obj_types_np == 1] = 0  # veh
+#     m[obj_types_np == 2] = 1  # ped
+#     m[obj_types_np == 3] = 2  # cyc
+
+    m = jnp.where(obj_types_np == 1, 0, m)
+    m = jnp.where(obj_types_np == 2, 1, m)
+    m = jnp.where(obj_types_np == 3, 2, m)
+
+    m = m.astype(jnp.int32)
+    return torch.from_numpy(jax.device_get(m).copy())
+#     return torch.from_numpy(m.astype(jnp.int64))
+
+
+class CATK_Simulator(catk_sim_agent.CATK_SimAgentActor):
+    """CATK Simulator class."""
+
+    def __init__(
+        self,
+        is_controlled_func: Optional[
+            Callable[[datatypes.SimulatorState], jax.Array]
+        ] = None,
+        invalidate_on_end: bool = False,
+        ckpt_path: Optional[str] = None,
+    ):
+        super().__init__(is_controlled_func=is_controlled_func)
+        self.invalidate_on_end = invalidate_on_end
+
+        # Device
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        # Load checkpoint config and weights
+        if ckpt_path is None:
+            root_path = os.environ.get('ROOT_PATH')
+            if not root_path:
+                raise ValueError(
+                    'CATK_Simulator requires ROOT_PATH environment variable when ckpt_path is not provided'
+                )
+            ckpt_path = os.path.join(
+                root_path, 'checkpoints', 'catk_trained_parameter', 'pre_bc_E31.ckpt'
+            )
+        ckpt = torch.load(ckpt_path, map_location='cpu')
+        mc = ckpt['hyper_parameters']['model_config']
+        self.model_config = mc
+
+        # Build token processor and encoder
+        self.token_processor = TokenProcessor(**mc['token_processor']).to(self.device)
+        self.encoder = SMARTDecoder(
+            n_token_agent=self.token_processor.n_token_agent,
+            **mc['decoder'],
+        ).to(self.device)
+        self.encoder.eval()
+        self.token_processor.eval()
+
+        # Load weights: strip leading 'encoder.'
+        enc_sd = {}
+        for k, v in ckpt['state_dict'].items():
+            if k.startswith('encoder.'):
+                enc_sd[k[len('encoder.'):]] = v
+        missing, unexpected = self.encoder.load_state_dict(enc_sd, strict=False)
+        # Silence warnings in runtime; we only need decoder weights
+
+        # Sampling scheme
+        self.sampling_scheme = mc['validation_rollout_sampling']
+
+    def update_trajectory(
+        self, state: datatypes.SimulatorState
+    ) -> datatypes.TrajectoryUpdate:
+        """Returns a trajectory update of shape (..., num_objects, 1)."""
+        next_traj = self._get_next_trajectory_by_projection(
+            state,
+        )
+        return datatypes.TrajectoryUpdate(
+            x=next_traj.x,
+            y=next_traj.y,
+            yaw=next_traj.yaw,
+            vel_x=next_traj.vel_x,
+            vel_y=next_traj.vel_y,
+            valid=next_traj.valid,
+        )
+
+    def _build_map_tokens(self, state: datatypes.SimulatorState) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+        rg = state.roadgraph_points
+        # Shapes: (..., num_points)
+        pos_xy = jax.device_get(rg.xy)
+        dir_xy = jax.device_get(rg.dir_xy)
+        types = jax.device_get(rg.types)
+        valid = jax.device_get(rg.valid)
+        ids = jax.device_get(rg.ids)
+
+        pos_xy = jnp.array(pos_xy)
+        dir_xy = jnp.array(dir_xy)
+        types = jnp.array(types)
+        valid = jnp.array(valid)
+        ids = jnp.array(ids)
+
+        # Flatten batch dims if exist; treat as one graph
+        pos_xy = pos_xy.reshape(-1, pos_xy.shape[-2], 2)
+        dir_xy = dir_xy.reshape(-1, dir_xy.shape[-2], 2)
+        types = types.reshape(-1, types.shape[-1])
+        valid = valid.reshape(-1, valid.shape[-1])
+        ids = ids.reshape(-1, ids.shape[-1])
+
+        pos_xy = pos_xy[0]
+        dir_xy = dir_xy[0]
+        types = types[0]
+        valid = valid[0]
+        ids = ids[0]
+
+        mask = valid.astype(bool)
+        pos_xy = pos_xy[mask]
+        dir_xy = dir_xy[mask]
+        types = types[mask]
+
+        if pos_xy.shape[0] == 0:
+            # Fallback to a single dummy polyline at origin
+            traj_pos = torch.zeros((1, 3, 2), dtype=torch.float32)
+            traj_theta = torch.zeros((1,), dtype=torch.float32)
+            pt_type = torch.zeros((1,), dtype=torch.long)
+            batch = torch.zeros((1,), dtype=torch.long)
+            return traj_pos, traj_theta, pt_type, batch
+
+        # Build 3-point polylines per roadgraph point using its direction
+        d = 1.0
+        dir_norm = jnp.linalg.norm(dir_xy, axis=-1, keepdims=True) + 1e-6
+        dir_u = dir_xy / dir_norm
+        p0 = pos_xy - d * dir_u
+        p1 = pos_xy
+        p2 = pos_xy + d * dir_u
+        traj_pos_np = jnp.stack([p0, p1, p2], axis=1)  # [n_pl, 3, 2]
+        traj_theta_np = jnp.arctan2(dir_u[:, 1], dir_u[:, 0])  # [n_pl]
+
+#         traj_pos = torch.from_numpy(traj_pos_np.astype(jnp.float32).copy()).to(self.device)
+        traj_pos = torch.from_numpy(jax.device_get(traj_pos_np.astype(jnp.float32)).copy()).to(self.device)
+        traj_theta = torch.from_numpy(jax.device_get(traj_theta_np.astype(jnp.float32)).copy()).to(self.device)
+        pt_type = torch.from_numpy(jax.device_get(types.astype(jnp.int64)).copy()).to(self.device)
+        batch = torch.zeros((traj_pos.shape[0],), dtype=torch.long)
+        return traj_pos, traj_theta, pt_type, batch
+
+    def _state_to_heterodata(self, state: datatypes.SimulatorState) -> HeteroData:
+        # Build agent tensors from log trajectory
+        log = state.log_trajectory
+        meta = state.object_metadata
+        # Note: avoid Python int() on JAX tracer; use current_sim_trajectory below instead.
+        # Extract full horizon (assumed 91 steps at 10Hz)
+        x = jax.device_get(log.x)
+        y = jax.device_get(log.y)
+        z = jax.device_get(log.z)
+        yaw = jax.device_get(log.yaw)
+        vel_x = jax.device_get(log.vel_x)
+        vel_y = jax.device_get(log.vel_y)
+        valid = jax.device_get(log.valid)
+        length = jax.device_get(log.length)
+        width = jax.device_get(log.width)
+        height = jax.device_get(log.height)
+
+        x = jnp.array(x)[0]
+        y = jnp.array(y)[0]
+        z = jnp.array(z)[0]
+        yaw = jnp.array(yaw)[0]
+        vel_x = jnp.array(vel_x)[0]
+        vel_y = jnp.array(vel_y)[0]
+        valid = jnp.array(valid)[0]
+        length = jnp.array(length)[0]
+        width = jnp.array(width)[0]
+        height = jnp.array(height)[0]
+
+        n_agent, n_step = x.shape[-2], x.shape[-1]
+        pos_np = jnp.stack([x, y, z], axis=-1)  # [n_agent, n_step, 3]
+        vel_np = jnp.stack([vel_x, vel_y], axis=-1)
+
+        # Types/ids/roles
+        obj_types = jnp.array(jax.device_get(meta.object_types))[0]
+        is_sdc = jnp.array(jax.device_get(meta.is_sdc))[0].astype(bool)
+        ooi = jnp.array(jax.device_get(getattr(meta, 'objects_of_interest', jnp.zeros_like(is_sdc))))[0] if hasattr(meta, 'objects_of_interest') else jnp.zeros_like(is_sdc)
+        ids = jnp.array(jax.device_get(meta.ids))[0]
+
+        agent_type = _object_type_to_catk_types(obj_types)
+        agent_id = torch.from_numpy(jax.device_get(ids.astype(jnp.int64)).copy()).to(self.device)
+        role = torch.stack([
+            torch.from_numpy(jax.device_get(is_sdc.astype(jnp.bool_)).copy()).to(self.device),
+            torch.from_numpy(jax.device_get(ooi.astype(jnp.bool_)).copy()).to(self.device),
+            torch.from_numpy(jax.device_get((~is_sdc & ~ooi).astype(jnp.bool_)).copy()).to(self.device),
+        ], dim=-1)
+        # Use geometry at the current step from current_sim_trajectory to avoid tracer concretization.
+        cur = state.current_sim_trajectory
+        cur_width = jnp.array(jax.device_get(cur.width))[0, :, 0]
+        cur_length = jnp.array(jax.device_get(cur.length))[0, :, 0]
+        cur_height = jnp.array(jax.device_get(cur.height))[0, :, 0]
+        shape = torch.stack([
+            torch.from_numpy(jax.device_get(cur_width.astype(jnp.float32)).copy()).to(self.device),
+            torch.from_numpy(jax.device_get(cur_length.astype(jnp.float32)).copy()).to(self.device),
+            torch.from_numpy(jax.device_get(cur_height.astype(jnp.float32)).copy()).to(self.device),
+        ], dim=-1)
+
+        data = HeteroData()
+        data['agent'].num_nodes = int(n_agent)
+        data['agent']['valid_mask'] = torch.from_numpy(jax.device_get(valid.astype(jnp.bool_)).copy()).to(self.device)
+        data['agent']['role'] = role
+        data['agent']['id'] = agent_id
+        data['agent']['type'] = agent_type
+        data['agent']['position'] = torch.from_numpy(jax.device_get(pos_np.astype(jnp.float32)).copy()).to(self.device)
+        data['agent']['heading'] = torch.from_numpy(jax.device_get(yaw.astype(jnp.float32)).copy()).to(self.device)
+        data['agent']['velocity'] = torch.from_numpy(jax.device_get(vel_np.astype(jnp.float32)).copy()).to(self.device)
+        data['agent']['shape'] = shape
+        data['agent']['batch'] = torch.zeros((n_agent,), dtype=torch.long)
+
+        # Map
+        traj_pos, traj_theta, pt_type, batch = self._build_map_tokens(state)
+        data['map_save'].num_nodes = int(traj_pos.shape[0])
+        data['map_save']['traj_pos'] = traj_pos
+        data['map_save']['traj_theta'] = traj_theta
+        data['pt_token'].num_nodes = int(traj_pos.shape[0])
+        data['pt_token']['type'] = pt_type
+        data['pt_token']['pl_type'] = torch.zeros_like(pt_type)
+        data['pt_token']['light_type'] = torch.zeros_like(pt_type)
+        data['pt_token']['batch'] = batch
+
+        # Indicate single graph
+        data.num_graphs = 1
+        return data
+
+    def _get_next_trajectory_by_projection(
+        self,
+        state: datatypes.SimulatorState,
+    ) -> datatypes.Trajectory:
+        """Run CAT-K to get the next trajectory for all agents."""
+        if self.invalidate_on_end and bool(jax.device_get(state.is_done())):
+            # Return invalid update
+            cur = state.current_sim_trajectory
+            invalid = jnp.zeros_like(cur.valid, dtype=jnp.bool_)
+            return datatypes.Trajectory(
+                x=cur.x, y=cur.y, z=cur.z, yaw=cur.yaw,
+                vel_x=cur.vel_x, vel_y=cur.vel_y, valid=invalid,
+                timestamp_micros=cur.timestamp_micros,
+                length=cur.length, width=cur.width, height=cur.height,
+            )
+
+        data = self._state_to_heterodata(state)
+        tokenized_map, tokenized_agent = self.token_processor(data)
+        # Move to device
+        tokenized_map = {k: v.to(self.device) for k, v in tokenized_map.items()}
+        tokenized_agent = {k: v.to(self.device) for k, v in tokenized_agent.items()}
+
+        with torch.no_grad():
+            pred = self.encoder.inference(tokenized_map, tokenized_agent, self.sampling_scheme)
+        pred_xy_10hz = pred.get('pred_traj_10hz')  # [n_agent, 80, 2]
+        pred_head_10hz = pred.get('pred_head_10hz')  # [n_agent, 80]
+
+        # Current step xy for vel
+        cur = state.current_sim_trajectory
+        cur_x = jax.device_get(cur.x)[0, :, 0]
+        cur_y = jax.device_get(cur.y)[0, :, 0]
+
+        # Next step
+        if pred_xy_10hz is None:
+            # Fallback: keep current
+            next_x = torch.from_numpy(cur_x.astype(jnp.float32))
+            next_y = torch.from_numpy(cur_y.astype(jnp.float32))
+            next_head = torch.from_numpy(jax.device_get(cur.yaw)[0, :, 0].astype(jnp.float32))
+        else:
+            next_x = pred_xy_10hz[:, 0, 0].cpu()
+            next_y = pred_xy_10hz[:, 0, 1].cpu()
+            if pred_head_10hz is not None:
+                next_head = pred_head_10hz[:, 0].cpu()
+            else:
+                # Approximate from displacement if no head
+                dx = next_x - torch.from_numpy(cur_x)
+                dy = next_y - torch.from_numpy(cur_y)
+                next_head = torch.atan2(dy, dx)
+
+        # Velocity
+        vx = (next_x - torch.from_numpy(cur_x)) / TIME_INTERVAL
+        vy = (next_y - torch.from_numpy(cur_y)) / TIME_INTERVAL
+
+        # Build Trajectory for one-step horizon
+        x = jnp.asarray(next_x.numpy(), dtype=jnp.float32)[None, :, None]
+        y = jnp.asarray(next_y.numpy(), dtype=jnp.float32)[None, :, None]
+        yaw = jnp.asarray(next_head.numpy(), dtype=jnp.float32)[None, :, None]
+        vx = jnp.asarray(vx.numpy(), dtype=jnp.float32)[None, :, None]
+        vy = jnp.asarray(vy.numpy(), dtype=jnp.float32)[None, :, None]
+        valid = jnp.asarray(~jax.device_get(state.object_metadata.is_sdc)[0], dtype=bool)[None, :, None]
+
+        cur = state.current_sim_trajectory
+        return datatypes.Trajectory(
+            x=x, y=y, z=cur.z, yaw=yaw,
+            vel_x=vx, vel_y=vy, valid=valid,
+            timestamp_micros=cur.timestamp_micros,
+            length=cur.length, width=cur.width, height=cur.height,
+        )

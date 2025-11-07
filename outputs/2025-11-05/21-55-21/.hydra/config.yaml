@@ -1,0 +1,94 @@
+method:
+  _target_: src.models.carplan.carplan_model.PlanningModel_MoE
+  _convert_: all
+  dim: 128
+  state_channel: 6
+  polygon_channel: 6
+  history_channel: 9
+  history_steps: 21
+  future_steps: 80
+  encoder_depth: 4
+  decoder_depth: 4
+  drop_path: 0.2
+  dropout: 0.1
+  num_heads: 4
+  num_modes: 12
+  state_dropout: 0.75
+  use_ego_history: false
+  state_attn_encoder: true
+  use_hidden_proj: true
+  ref_free_traj: true
+  use_collision_loss: true
+  cat_x: false
+  is_simulation: false
+  deepseek_num_experts_per_tok: 2
+  deepseek_n_routed_experts: 16
+  deepseek_scoring_func: softmax
+  deepseek_aux_loss_alpha: 0.001
+  deepseek_seq_aux: false
+  deepseek_norm_topk_prob: true
+  deepseek_hidden_size: 128
+  deepseek_intermediate_size: 128
+  deepseek_moe_intermediate_size: 80
+  deepseek_n_shared_experts: 2
+  deepseek_first_k_dense_replaces: 1
+  deepseek_road_balance_loss: true
+  deepseek_road_balance_loss_weight: 2
+  router_original_init: true
+  deepseek_residual: false
+  use_av_query_for_displacement: true
+  collision_loss_weight: 1.0
+  cil_loss_weight: 1.0
+  planning_loss_weight: 1.0
+  prediction_loss_weight: 2.0
+  feature_builder:
+    _target_: src.feature_builders.carplan_feature_builder.CarPLANFeatureBuilder
+    _convert_: all
+    radius: 120
+    history_horizon: 2
+    future_horizon: 8
+    sample_interval: 0.1
+    max_agents: 48
+    build_reference_line: true
+vis: false
+rewards:
+  sdc_progression: 0.0
+  offroad: -1.0
+  overlap: -1.0
+  sdc_kinematic_infeasibility: 0.0
+  log_divergence: 0.0
+  speed_divergence: -1.0
+  sdc_wrongway: -1.0
+waymax_conf:
+  path: /media/sunghjopnam/HDD_4T/waymo_open_dataset_motion_v_1_3_0/uncompressed/tf_example/validation/validation_tfexample.tfrecord@150
+  max_num_objects: 128
+  max_num_rg_points: 30000
+  num_shards: 4
+  repeat: 1
+  distributed: true
+  drop_remainder: true
+  customized: false
+ego_control_setting:
+  ego_policy_type: custom
+  npc_policy_type: catk
+  action_type: ${action_space.dynamic_type}
+  action_space: ${action_space}
+metric_conf:
+  arrival_thres:
+  - 0.75
+  - 0.8
+  - 0.85
+  - 0.9
+  - 0.95
+  intention_label_path: /home/sunghjopnam/Documents/Git/LatentDriver/val_intention_label
+data_conf:
+  max_map_segments: 1000
+  max_roadgraph_segments: 40
+  max_route_segments: 20
+  FOV:
+  - 80
+  - 20
+  path_to_processed_map_route: /home/sunghjopnam/Documents/Git/LatentDriver/val_preprocessed_path
+batch_dims:
+- 4
+- 125

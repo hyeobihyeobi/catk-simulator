@@ -1,0 +1,6 @@
+- method=latentdriver
+- ++waymax_conf.path='/workspace/Git/LatentDriver/waymo_open_dataset_motion_v_1_3_0/uncompressed/tf_example/validation/validation_tfexample.tfrecord@150'
+- ++data_conf.path_to_processed_map_route='/workspace/Git/LatentDriver/val_preprocessed_path'
+- ++metric_conf.intention_label_path='/workspace/Git/LatentDriver/val_intention_label'
+- ++batch_dims=[4,125]
+- ++ego_control_setting.npc_policy_type=catk

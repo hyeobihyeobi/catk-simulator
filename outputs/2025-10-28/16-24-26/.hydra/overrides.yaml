@@ -1,0 +1,6 @@
+- ++batch_dims=[1,150]
+- ++waymax_conf.drop_remainder=True
+- ++waymax_conf.path=/media/sunghjopnam/HDD_4T/waymo_open_dataset_motion_v_1_3_0/uncompressed/tf_example/training/training_tfexample.tfrecord@1000
+- ++data_conf.path_to_processed_map_route=/home/sunghjopnam/Documents/Git/LatentDriver/train_preprocessed_path
+- ++metric_conf.intention_label_path=/home/sunghjopnam/Documents/Git/LatentDriver/train_intention_label
+- ++save_path=/home/sunghjopnam/Documents/Git/LatentDriver/train_data
