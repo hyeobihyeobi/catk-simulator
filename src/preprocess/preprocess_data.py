@@ -19,6 +19,8 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     tqdm = None
 
+from debug_visualisation import DebugVisualisation
+
 # Constants
 MAP_DIR_NAME = 'map'
 ROUTE_DIR_NAME = 'route'
@@ -88,6 +90,9 @@ class Preprocessor(object):
         routes, ego_car_widths = get_route_global(scen)
         routes = np.array(routes)
         ego_car_widths = np.array(ego_car_widths)
+
+
+# DebugVisualisation().plot_map_jax(road_obs[..., :2], routes, ids=road_ids, batch_idx=0)
 
         # Extract intention label data
         mask = scen.object_metadata.is_sdc

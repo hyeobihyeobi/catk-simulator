@@ -302,8 +302,8 @@ def get_obs_from_routeandmap_saved(
     vehicle_sgements = get_vehicle_obs(sdc_obs,time_step)
     cur_vehicle_sgements = vehicle_sgements[...,-1,:]
 
-    veh_segs, vehicle_exceed_masks = padding_exceed(cur_vehicle_sgements,dis=ROI_wh)
-    veh_segs = veh_segs.reshape(B,cur_vehicle_sgements.shape[-2],cur_vehicle_sgements.shape[-1])
+    veh_segs, vehicle_exceed_masks = padding_exceed(cur_vehicle_sgements, dis=ROI_wh)
+    veh_segs = veh_segs.reshape(B, cur_vehicle_sgements.shape[-2], cur_vehicle_sgements.shape[-1])
     # for other agents trajs
     # (bs,num_objs,time_step-1,6)
     his_veh_trajs = vehicle_sgements[...,:-1,:]
@@ -314,6 +314,14 @@ def get_obs_from_routeandmap_saved(
                             jnp.linspace(0,B-1,B).astype(int),
                             sdc_idx.reshape(-1)].set(False)
     his_veh_trajs = jnp.where(vehicle_exceed_masks[...,jnp.newaxis,jnp.newaxis],0,his_veh_trajs).reshape((-1,)+his_veh_trajs.shape[2:])
+
+#     DebugVisualisation().plot_map_jax(
+#         whole_map_roi[..., :2],
+#         his_veh_trajs[0, 0, :, 1:3],
+#         ids=whole_map_roi[..., 4],
+#         types=whole_map_roi[..., 3:4],
+#         batch_idx=0,
+#     )
 
     # type_vehicles [bs,7]
     type_vehicles = add_type_and_reset_padding(veh_segs, 2)

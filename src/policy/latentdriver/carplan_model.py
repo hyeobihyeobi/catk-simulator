@@ -26,6 +26,8 @@ from .layers.mlp_layer import MLPLayer
 
 import torch.nn.functional as F
 
+from debug_visualisation import DebugVisualisation
+
 def unpack_action(action, B, T):
     # action: B*T, K, 7
     prob, out_model, yaw = action[...,0:1], action[...,1:6], action[...,6:]
@@ -617,6 +619,19 @@ class CarPLAN(pl.LightningModule):
         if his.dim() == 5:
             his = his.reshape(-1, his.shape[2], his.shape[3], his.shape[4])
 
+        # Zero history timesteps that fall outside the [-50, 50] ROI in x/y (ROI size [50, 50] * 2).
+        if his.shape[-1] >= 3:
+            roi_half_extent = his.new_tensor([50.0, 50.0])
+            pos = his[..., 1:3]
+            within_roi = (pos >= -roi_half_extent) & (pos <= roi_half_extent)
+            within_roi = within_roi.all(dim=-1)  # shape: (envs, agents, T)
+            his = torch.where(within_roi.unsqueeze(-1), his, torch.zeros_like(his))
+
+        # Mask out invalid history entries using the provided valid flag (feat index 10).
+        if his.shape[-1] > 10:
+            hist_valid_mask = (his[..., 10] == 1).unsqueeze(-1)
+            his = his * hist_valid_mask
+
         current_state_tmp = _to_torch(ss["vehicle_segments"])
         # Flatten leading device/batch axes; keep agent/time/feat structure if present.
         if current_state_tmp.dim() == 5:
@@ -684,7 +699,7 @@ class CarPLAN(pl.LightningModule):
                     continue
                 path_xyz = torch.cat(
                     [
-                        pts[:, 1:3],
+                        pts[:, :2],
                         torch.zeros((pts.shape[0], 1), device=pts.device, dtype=pts.dtype),
                     ],
                     dim=-1,
@@ -770,6 +785,42 @@ class CarPLAN(pl.LightningModule):
         agent_acc = his[..., 8:10]                    # ax, ay
         agent_valid = (his[..., 10] == 1).bool()      # (B, A, T)
         agent_category = his[..., 0, 0]               # type id (2=vehicle, 4=SDC set upstream)
+
+
+#         DebugVisualisation().plot_sampled_map_and_route(
+#             point_position,
+#             agent_pos,
+#             ids=polygon_type,
+#             batch_idx=0,
+#         )
+
+
+#         # Prepare lightweight CPU numpy inputs for visualization to match plot_map_jax expectations.
+#         map_for_vis = _to_torch(ss['roadgraph_obs'][..., :2])
+#         ids_for_vis = _to_torch(ss['roadgraph_obs'][..., 4])
+#         types_for_vis = _to_torch(ss['roadgraph_obs'][..., 3:4])
+# 
+#         # Flatten all non-batch dimensions into a single point axis so each x/y is scalar,
+#         # then add a dummy lane dimension.
+#         map_for_vis = map_for_vis.reshape(map_for_vis.shape[0], -1, 2)   # (B, N, 2)
+#         ids_for_vis = ids_for_vis.reshape(ids_for_vis.shape[0], -1)      # (B, N)
+#         types_for_vis = types_for_vis.reshape(types_for_vis.shape[0], -1, types_for_vis.shape[-1])  # (B, N, 1)
+# 
+#         map_for_vis = map_for_vis[:1].unsqueeze(1)    # (1, 1, N, 2)
+#         ids_for_vis = ids_for_vis[:1].unsqueeze(1)    # (1, 1, N)
+#         types_for_vis = types_for_vis[:1].unsqueeze(1)  # (1, 1, N, 1)
+# 
+#         map_for_vis = map_for_vis.detach().cpu().numpy()
+#         ids_for_vis = ids_for_vis.detach().cpu().numpy()
+#         types_for_vis = types_for_vis.detach().cpu().numpy()
+# 
+#         DebugVisualisation().plot_map_jax(
+#             map_for_vis,
+#             None,
+#             ids=ids_for_vis,
+#             types=types_for_vis,
+#             batch_idx=0,
+#         )
 
 #         point_position = _to_torch(ss['point_position'])
 #         point_vector = _to_torch(ss['point_vector'])

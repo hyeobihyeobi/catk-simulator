@@ -4,6 +4,7 @@ import numpy as np
 import datetime
 import os
 import sys
+import torch
 
 class DebugVisualisation():
     def __init__(self):
@@ -102,6 +103,19 @@ class DebugVisualisation():
         predictions: list of (N, action_dim) - predicted actions at each timestep
         batch_idx: index of the batch to visualize
         """
+        def to_numpy(x):
+            if torch.is_tensor(x):
+                return x.detach().cpu().numpy()
+            return np.array(x)
+
+        map_data = to_numpy(map_data)
+        if lane_data is not None:
+            lane_data = to_numpy(lane_data)
+        if ids is not None:
+            ids = to_numpy(ids)
+        if types is not None:
+            types = to_numpy(types)
+
         plt.figure(figsize=(10, 10))
         ax = plt.gca()
         ax.set_aspect('equal', adjustable='box')
@@ -120,6 +134,10 @@ class DebugVisualisation():
 #             print(types[0, i, 0], end=' ')
             x = map_data[0, 0, i, 0]
             y = map_data[0, 0, i, 1]
+#             x = np.ravel(x_arr)[0]
+#             y = np.ravel(y_arr)[0]
+#             x = map_data[0, i, 0]
+#             y = map_data[0, i, 1]
             if np.abs(x) > 5000 or np.abs(y) > 5000:
                 continue
             if x == -1 or y == -1:
@@ -128,7 +146,8 @@ class DebugVisualisation():
                     print('valid points : ', i)
                     sys.stdout.flush()
                 break
-            plt.scatter(x, y, color=self.colours[colour_change_idx % len(self.colours)], s=0.1)
+#             plt.scatter(x, y, color=self.colours[colour_change_idx % len(self.colours)], s=0.3)
+            plt.scatter(x, y, color='gray', s=0.3)
             map_xs.append(x)
             map_ys.append(y)
             if ids is not None:
@@ -149,19 +168,21 @@ class DebugVisualisation():
             lane_xs = []
             lane_ys = []
             lane_data = np.array(lane_data)
-            for i in range(lane_data.shape[2]):
+            for i in range(lane_data.shape[0]):
+                x = lane_data[i, 0]
+                y = lane_data[i, 1]
+#                 x = lane_data[0, i, 0]
+#                 y = lane_data[0, i, 1]
+                plt.scatter(x, y, color='red', s=0.3)
+                lane_xs.append(x)
+                lane_ys.append(y)
+#                 print(x, '\t', y)
                 if x == -1 or y == -1:
                     if is_first:
                         is_first = False
                         print(i)
                         sys.stdout.flush()
                     break
-                x = lane_data[0, 0, i, 1]
-                y = lane_data[0, 0, i, 2]
-                plt.scatter(x, y, color='black', s=0.1)
-                lane_xs.append(x)
-                lane_ys.append(y)
-#                 print(x, '\t', y)
 
             # 자동으로 모든 점을 커버하도록 축 범위 설정
             all_xs = np.array(map_xs + lane_xs)
@@ -299,4 +320,86 @@ class DebugVisualisation():
         plt.xlabel('X Position')
         plt.ylabel('Y Position')
         plt.grid()
+        plt.savefig(self.save_file)
+
+
+    def plot_sampled_map_and_route(self, map_data, route_data=None, ids=None, types=None, batch_idx=0):
+        """
+        Plot sampled roadgraph polylines along with (optional) agent trajectories.
+
+        Args:
+            map_data: sampled polylines, expected shape (B, M, 1, P, 2) or (B, M, P, 2).
+            route_data: optional agent positions, shape (B, A, T, 2).
+            ids: optional polyline/type ids, shape (B, M) or (B, M, ...), used for coloring.
+            batch_idx: which batch element to visualize.
+        """
+        def to_numpy(x):
+            if torch.is_tensor(x):
+                return x.detach().cpu().numpy()
+            return np.array(x)
+
+        plt.figure(figsize=(10, 10))
+        ax = plt.gca()
+        ax.set_aspect('equal', adjustable='box')
+
+        map_np = to_numpy(map_data)
+        if map_np.ndim == 5:
+            segs = map_np[batch_idx, :, 0]  # (M, P, 2)
+        elif map_np.ndim == 4:
+            segs = map_np[batch_idx]
+        else:
+            raise ValueError(f"Unexpected map_data shape: {map_np.shape}")
+
+        ids_np = to_numpy(ids) if ids is not None else None
+        if ids_np is not None:
+            if ids_np.ndim > 1:
+                ids_np = ids_np[batch_idx]
+            ids_np = ids_np.astype(int)
+
+        xs_all, ys_all = [], []
+        for m in range(segs.shape[0]):
+            seg = segs[m]
+            valid = ~(np.isclose(seg, 0).all(axis=-1) | np.isnan(seg).any(axis=-1))
+            seg = seg[valid]
+            if seg.size == 0:
+                continue
+            color_idx = ids_np[m] if ids_np is not None else m
+            color = self.colours[int(color_idx) % len(self.colours)]
+            plt.plot(seg[:, 0], seg[:, 1], color=color, linewidth=0.8, alpha=0.9)
+            plt.scatter(seg[:, 0], seg[:, 1], color=color, s=2)
+            xs_all.append(seg[:, 0])
+            ys_all.append(seg[:, 1])
+
+        if route_data is not None:
+            route_np = to_numpy(route_data)[batch_idx]  # (A, T, 2)
+            # treat all non-zero positions as valid
+            valid_mask = ~(np.isclose(route_np.sum(axis=-1), 0) | np.isnan(route_np).any(axis=-1))
+            for a in range(route_np.shape[0]):
+                agent_valid = valid_mask[a]
+                if not agent_valid.any():
+                    continue
+                traj = route_np[a, agent_valid]
+                plt.plot(traj[:, 0], traj[:, 1], color='black', linestyle='--', linewidth=1.0, alpha=0.8)
+                plt.scatter(traj[-1, 0], traj[-1, 1], color='black', s=10, marker='x')
+                xs_all.append(traj[:, 0])
+                ys_all.append(traj[:, 1])
+
+        if xs_all and ys_all:
+            xs = np.concatenate(xs_all)
+            ys = np.concatenate(ys_all)
+            valid = ~np.isnan(xs) & ~np.isnan(ys)
+            if valid.any():
+                xs = xs[valid]
+                ys = ys[valid]
+                x_min, x_max = xs.min(), xs.max()
+                y_min, y_max = ys.min(), ys.max()
+                x_pad = max((x_max - x_min) * 0.05, 1.0)
+                y_pad = max((y_max - y_min) * 0.05, 1.0)
+                plt.xlim(x_min - x_pad, x_max + x_pad)
+                plt.ylim(y_min - y_pad, y_max + y_pad)
+
+        plt.title(f"Sampled Map & Route (batch {batch_idx})")
+        plt.xlabel("X Position")
+        plt.ylabel("Y Position")
+        plt.grid(True, linestyle='--', alpha=0.4)
         plt.savefig(self.save_file)

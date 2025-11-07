@@ -495,7 +495,7 @@ class WaymoEnv():
             route_i = slice_first_axis(self.route_np, dev_idx)
             tl_i = slice_first_axis(self.tl_np, dev_idx)
             on_route_i = slice_first_axis(self.on_route_mask_np, dev_idx)
-            data_i, _ = get_obs_from_routeandmap_saved_jit(state_i, map_i, route_i, tl_i, on_route_i, (80, 20))
+            data_i, _ = get_obs_from_routeandmap_saved_jit(state_i, map_i, route_i, tl_i, on_route_i, (50, 50))
             data_list.append(jax.tree_util.tree_map(lambda arr: jax.device_get(arr), data_i))
 
         data_dict = jax.tree_util.tree_map(lambda *xs: np.stack(xs, axis=0), *data_list)
