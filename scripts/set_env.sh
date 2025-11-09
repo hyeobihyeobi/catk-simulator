@@ -1,8 +1,9 @@
 # set your path here
-export WAYMO_DATASET_PATH="/workspace"
-export ROOT_PATH="/workspace/Git/LatentDriver"
-export WOMD_VAL_PATH="${WAYMO_DATASET_PATH}/waymo_open_dataset_motion_v_1_3_0/uncompressed/tf_example/validation/validation_tfexample.tfrecord@150"
-export WOMD_TRAIN_PATH="${WAYMO_DATASET_PATH}/waymo_open_dataset_motion_v_1_3_0/uncompressed/tf_example/training/training_tfexample.tfrecord@1000"
+export WAYMO_DATASET_PATH="/workspace/WOMD"
+export ROOT_PATH="/workspace/catk-simulator"
+export PRE_PROCESS_ROOT_PATH="/workspace/LatentDriver"
+export WOMD_VAL_PATH="${WAYMO_DATASET_PATH}/waymo_open_dataset_motion_v_1_3_1/uncompressed/tf_example/validation/validation_tfexample.tfrecord@150"
+export WOMD_TRAIN_PATH="${WAYMO_DATASET_PATH}/waymo_open_dataset_motion_v_1_3_1/uncompressed/tf_example/training/training_tfexample.tfrecord@1000"
 
 if [ -z "${CUDA_HOME:-}" ]; then
   if [ -n "${CONDA_PREFIX:-}" ] && [ -x "${CONDA_PREFIX}/bin/nvcc" ]; then
@@ -34,10 +35,10 @@ if [ -n "${CUDA_HOME:-}" ]; then
   done
 fi
 
-export PRE_PROCESS_VAL_PATH="${ROOT_PATH}/val_preprocessed_path"
-export PRE_PROCESS_TRAIN_PATH="${ROOT_PATH}/train_preprocessed_path"
+export PRE_PROCESS_VAL_PATH="${PRE_PROCESS_ROOT_PATH}/val_preprocessed_path"
+export PRE_PROCESS_TRAIN_PATH="${PRE_PROCESS_ROOT_PATH}/train_preprocessed_path"
 
-export INTENTION_VAL_PATH="${ROOT_PATH}/val_intention_label"
-export INTENTION_TRAIN_PATH="${ROOT_PATH}/train_intention_label"
+export INTENTION_VAL_PATH="${PRE_PROCESS_ROOT_PATH}/val_intention_label"
+export INTENTION_TRAIN_PATH="${PRE_PROCESS_ROOT_PATH}/train_intention_label"
 
-export TRAINING_DATA_PATH="${ROOT_PATH}/train_data"
+export TRAINING_DATA_PATH="${PRE_PROCESS_ROOT_PATH}/train_data"

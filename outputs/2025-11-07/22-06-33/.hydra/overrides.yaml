@@ -1,0 +1,12 @@
+- method=latentdriver
+- ++data_path=/workspace/LatentDriver/train_data
+- ++exp_name=ltdriver-test-training
+- ++version=latentdriver
+- ++method.max_epochs=10
+- ++method.train_batch_size=512
+- ++method.learning_rate=2.0e-4
+- ++load_num_workers=32
+- ++method.num_of_decoder=3
+- ++method.max_len=2
+- ++method.est_layer=0
+- ++method.pretrain_enc=checkpoints/pretrained_bert.pth.tar

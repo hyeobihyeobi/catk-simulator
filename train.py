@@ -32,6 +32,7 @@ def train(cfg):
         # monitor='val/brier_fde',  # Replace with your validation metric
         filename='latest',
         save_top_k=1,
+        save_weights_only=False,  # Save optimizer state as well
         # mode='min',  # 'min' for loss/error, 'max' for accuracy
     )
     # checkpoint_callback.FILE_EXTENSION = ".pth.tar"

@@ -1,6 +1,7 @@
 # common
 model_name: latentdriver
-ckpt_path: /workspace/Git/LatentDriver/checkpoints/lantentdriver_t2_J3.ckpt
+ckpt_path: /workspace/catk-simulator/checkpoints/lantentdriver_t2_J3.ckpt # Use this for simulation
+# ckpt_path: null # Use this for training
 # action space
 action_space:
     dynamic_type: waypoint
@@ -22,7 +23,7 @@ function: 'enc-LWM-MPP' # can be: 'enc-LWM-MPP', 'enc-MPP', indicates which comb
 pretrain_world: null
 freeze_world: False # whether to freeze the world model during training
 
-pretrain_enc: /workspace/Git/LatentDriver/checkpoints/pretrained_bert.pth.tar #'checkpoints/pretrained_bert.pth.tar'
+pretrain_enc: /workspace/catk-simulator/checkpoints/pretrained_bert.pth.tar #'checkpoints/pretrained_bert.pth.tar'
 freeze_enc: False # whether to freeze the encoder during training
 
 
