@@ -246,7 +246,7 @@ def get_obs_from_routeandmap_saved(
 
 get_obs_from_routeandmap_saved_pmap = jax.pmap(
     get_obs_from_routeandmap_saved,
-    static_broadcasted_argnums=(3,),
+    in_axes=(0, 0, 0),
 )
 get_obs_from_routeandmap_saved_jit = jax.jit(
     get_obs_from_routeandmap_saved,
