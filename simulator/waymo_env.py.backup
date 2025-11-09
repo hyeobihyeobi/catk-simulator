@@ -66,14 +66,9 @@ class WaymoEnv():
             self.discretizer = build_discretizer(action_space)
         self.action_space_type = action_space.type
         if npc_type == 'catk':
-            if multi_device:
-                self.com_traj = combin_traj
-                self.dynamic_inverse = env_dynamic_model.inverse
-                self.get_obs_fn = get_obs_from_routeandmap_saved_pmap
-            else:
-                self.com_traj = combin_traj
-                self.dynamic_inverse = env_dynamic_model.inverse
-                self.get_obs_fn = get_obs_from_routeandmap_saved_jit
+            self.com_traj = combin_traj
+            self.dynamic_inverse = env_dynamic_model.inverse
+            self.get_obs_fn = get_obs_from_routeandmap_saved_jit
         else:
             if multi_device:
                 self.com_traj = jax.pmap(combin_traj)
@@ -83,6 +78,7 @@ class WaymoEnv():
                 self.com_traj = jax.jit(combin_traj)
                 self.dynamic_inverse = jax.jit(env_dynamic_model.inverse)
                 self.get_obs_fn = get_obs_from_routeandmap_saved_jit
+        # waymax_conf.update({'batch_dims': batch_dims})
         self.env = WaymoBaseEnv(
                     waymax_conf=waymax_conf,
                     env_conf=env_conf,

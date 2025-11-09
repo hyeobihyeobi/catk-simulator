@@ -1,4 +1,4 @@
-vis: 'video' # whether to visualize the simulation, can be [False, 'image', 'video'].
+vis: False # whether to visualize the simulation, can be [False, 'image', 'video'].
 
 # The setting below is not used in behavior cloning
 rewards:
