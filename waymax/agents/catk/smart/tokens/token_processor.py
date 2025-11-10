@@ -122,10 +122,6 @@ class TokenProcessor(torch.nn.Module):
             "batch": data["pt_token"]["batch"].to(device),
         }
         tokenized_map["type"] = torch.remainder(tokenized_map["type"], 10)
-        if not hasattr(self, "_map_type_debug_logged"):
-            types = tokenized_map["type"].unique().tolist()
-            print("[TokenProcessor] map type uniques:", types)
-            self._map_type_debug_logged = True
         return tokenized_map
 
     def tokenize_agent(self, data: HeteroData) -> Dict[str, Tensor]:
@@ -191,9 +187,6 @@ class TokenProcessor(torch.nn.Module):
 
         # ! prepare output dict
         agent_shape_raw_full = data["agent"]["shape"].to(device)
-        if not hasattr(self, "_agent_shape_logged"):
-            print("[TokenProcessor] raw agent shape tensor shape:", tuple(agent_shape_raw_full.shape))
-            self._agent_shape_logged = True
         if agent_shape_raw_full.dim() == 3:
             if agent_shape_raw_full.shape[1] == 1 and n_agents > 1:
                 agent_shape_raw_full = agent_shape_raw_full.repeat(1, n_agents, 1)
@@ -264,13 +257,6 @@ class TokenProcessor(torch.nn.Module):
             token_traj=token_traj,
         )
         tokenized_agent.update(token_dict)
-        if not hasattr(self, "_agent_batch_logged"):
-            print(
-                "[TokenProcessor] agent batch shape:",
-                tuple(tokenized_agent["batch"].shape),
-                "num_graphs", tokenized_agent["num_graphs"]
-            )
-            self._agent_batch_logged = True
         return tokenized_agent
 
     def _match_agent_token(
@@ -296,16 +282,6 @@ class TokenProcessor(torch.nn.Module):
             "sampled_pos": [n_agent, n_step_token, 2]
             "sampled_heading": [n_agent, n_step_token]
         """
-        if not hasattr(self, "_match_shape_logged"):
-            print(
-                "[TokenProcessor] match token shapes:",
-                "valid", tuple(valid.shape),
-                "pos", tuple(pos.shape),
-                "heading", tuple(heading.shape),
-                "agent_shape", tuple(agent_shape.shape),
-                "token_traj", tuple(token_traj.shape),
-            )
-            self._match_shape_logged = True
         num_k = self.agent_token_sampling.num_k if self.training else 1
         n_agent = valid.shape[0]
         valid = valid.reshape(n_agent, -1)

@@ -31,22 +31,19 @@ def create_control_actor(
     is_controlled = is_controlled_func(state)
     shape = state.shape + (state.num_objects,1)
     actions = datatypes.Action
-    if not hasattr(select_action, "_debug_logged"):
-      print("[ControlActor] state.shape:", state.shape, "num_objects:", state.num_objects)
-      if isinstance(params.get('actions'), (list, tuple)):
-        print("[ControlActor] params['actions'] entries:", len(params['actions']))
-        for idx, action in enumerate(params['actions']):
-          print(f"[ControlActor] action[{idx}] shape:", getattr(action, "shape", None))
-      else:
-        print("[ControlActor] params['actions'] shape:", getattr(params.get('actions'), "shape", None))
-      select_action._debug_logged = True  # type: ignore[attr-defined]
-    wrapped_action = [wrap_action(action,state) for action in params['actions']]
-    if not hasattr(select_action, "_wrap_debug_logged"):
-      for idx, w in enumerate(wrapped_action):
-        print(f"[ControlActor] wrapped_action[{idx}] shape:", getattr(w, "shape", None))
-      select_action._wrap_debug_logged = True  # type: ignore[attr-defined]
+    # params['actions'] shape: (num_devices, action_dim, batch) or (action_dim, batch)
+    # Transpose to (action_dim, num_devices, batch) or (action_dim, batch) to iterate over actions
+    actions_array = params['actions']
+    if actions_array.ndim == 3:
+        actions_transposed = jnp.transpose(actions_array, (1, 0, 2))
+    elif actions_array.ndim == 2:
+        actions_transposed = actions_array
+    else:
+        raise ValueError("Unexpected actions shape: {}".format(actions_array.shape))
+
+    wrapped_action = [wrap_action(action, state) for action in actions_transposed]
     wrapped_data = jnp.concatenate(wrapped_action,axis=-1)
-    actions = datatypes.Action(data=wrapped_data, 
+    actions = datatypes.Action(data=wrapped_data,
                               valid=jnp.ones(shape, dtype=jnp.bool_))
 
     # Note here actions' valid could be different from is_controlled, it happens
@@ -61,7 +58,7 @@ def create_control_actor(
   return actor_core.actor_core_factory(
       init=lambda rng, init_state: None,
       select_action=select_action,
-      name=f'muzero_agent',
+      name='muzero_agent',
   )
 def wrap_action(data,state):
     '''

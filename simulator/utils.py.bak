@@ -6,6 +6,10 @@ from src.utils.utils import loading_data
 from src.utils.discretizer import Discretizer
 import os
 
+_MISSING_ROUTE_IDS = set()
+_MISSING_LABEL_IDS = set()
+_ROUTE_FALLBACK_TEMPLATE = np.zeros((20, 6), dtype=np.float64)
+
 def get_cache_polylines_baseline(cur_state:datatypes.SimulatorState,
                                 path_to_map:str,
                                 path_to_route:str,
@@ -18,11 +22,40 @@ def get_cache_polylines_baseline(cur_state:datatypes.SimulatorState,
         whole_map_by_batch = []
         whole_route_by_batch = []
         for batch_id in range(cur_id.shape[1]):
-            whole_map_by_batch.append(loading_data(os.path.join(path_to_map,'{}.npy'.format(cur_id[device_id][batch_id])), mode='np'))
-            whole_route_by_batch.append(loading_data(os.path.join(path_to_route,'{}.npy'.format(cur_id[device_id][batch_id])), mode = 'np'))
+            scenario_id = cur_id[device_id][batch_id]
+            # Handle replicated scenario_id (all devices have same ID)
+            while hasattr(scenario_id, "shape") and len(scenario_id.shape) > 0:
+                scenario_id = scenario_id[0]
+            if hasattr(scenario_id, "item"):
+                scenario_value = scenario_id.item()
+            else:
+                scenario_value = scenario_id
+            scenario_str = str(scenario_value)
+            whole_map_by_batch.append(
+                loading_data(
+                    os.path.join(path_to_map, f'{scenario_str}.npy'),
+                    mode='np',
+                )
+            )
+            route_path = os.path.join(path_to_route, f'{scenario_str}.npy')
+            if os.path.exists(route_path):
+                route_array = loading_data(route_path, mode='np')
+            else:
+                if scenario_str not in _MISSING_ROUTE_IDS:
+                    print(f'[LatentDriver] Missing cached route for {scenario_str}, using zeros.')
+                    _MISSING_ROUTE_IDS.add(scenario_str)
+                route_array = _ROUTE_FALLBACK_TEMPLATE.copy()
+            whole_route_by_batch.append(route_array)
             if intention_label_path is not None:
-                with open(os.path.join(intention_label_path,'{}.txt'.format(cur_id[device_id][batch_id])),'r')as f:
-                    intention_label.append(f.readlines()[0])
+                label_path = os.path.join(intention_label_path, f'{scenario_str}.txt')
+                if os.path.exists(label_path):
+                    with open(label_path, 'r') as f:
+                        intention_label.append(f.readlines()[0])
+                else:
+                    if scenario_str not in _MISSING_LABEL_IDS:
+                        print(f'[LatentDriver] Missing intention label for {scenario_str}, defaulting to empty string.')
+                        _MISSING_LABEL_IDS.add(scenario_str)
+                    intention_label.append('')
 
         whole_map_by_device_id.append(np.stack(whole_map_by_batch,axis=0))
         # print(whole_map_by_device_id[-1].shape)

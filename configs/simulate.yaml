@@ -23,7 +23,7 @@ waymax_conf:
 
 ego_control_setting:
   ego_policy_type: custom #[custom, expert,stationary]
-  npc_policy_type: expert #[expert, idm]
+  npc_policy_type: catk #[expert, idm, catk]
   # should be defined in method config file
   action_type: ${action_space.dynamic_type}
   action_space: ${action_space}

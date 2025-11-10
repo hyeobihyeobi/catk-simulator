@@ -22,9 +22,8 @@ def _to_torch(x) -> Tensor:
         return x
     if hasattr(x, 'dtype') and 'jax' in type(x).__module__:
         x = jax.device_get(x)
-    x = jnp.array(x)
-    t = torch.from_numpy(x)
-    return t
+    x = np.array(x, copy=True)
+    return torch.from_numpy(x)
 
 
 def _object_type_to_catk_types(obj_types_np: jnp.ndarray) -> torch.Tensor:
@@ -53,12 +52,17 @@ class CATK_Simulator(catk_sim_agent.CATK_SimAgentActor):
         ] = None,
         invalidate_on_end: bool = False,
         ckpt_path: Optional[str] = None,
+        device_id: Optional[int] = None,
     ):
         super().__init__(is_controlled_func=is_controlled_func)
         self.invalidate_on_end = invalidate_on_end
 
         # Device
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        # Device
+        if device_id is not None:
+            self.device = torch.device(f'cuda:{device_id}' if torch.cuda.is_available() else 'cpu')
+        else:
+            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         # Load checkpoint config and weights
         if ckpt_path is None:
@@ -250,10 +254,6 @@ class CATK_Simulator(catk_sim_agent.CATK_SimAgentActor):
         merged_vel_y = _time_shift(merged_vel_y)
         merged_valid = _time_shift(merged_valid)
 
-        if not hasattr(self, "_log_shape_debug"):
-            print("[CATK] log.x shape:", log_x.shape)
-            self._log_shape_debug = True
-
         # XY only for tokenizer inputs
         pos_xy = np.stack([merged_x, merged_y], axis=-1).astype(np.float32)
         vel_xy = np.stack([merged_vel_x, merged_vel_y], axis=-1).astype(np.float32)
@@ -280,9 +280,6 @@ class CATK_Simulator(catk_sim_agent.CATK_SimAgentActor):
         # Use current step geometry from current_sim_trajectory (already dynamically sliced in simulator)
         cur = state.current_sim_trajectory
         cur_width_np = np.array(jax.device_get(cur.width))
-        if not hasattr(self, "_cur_shape_debug"):
-            print("[CATK] cur.width shape:", cur_width_np.shape)
-            self._cur_shape_debug = True
         cur_width_np = cur_width_np.reshape(n_graphs, n_agent_per_graph, -1).astype(np.float32)[..., 0]
         cur_length_np = np.array(jax.device_get(cur.length)).reshape(n_graphs, n_agent_per_graph, -1).astype(np.float32)[..., 0]
         cur_height_np = np.array(jax.device_get(cur.height)).reshape(n_graphs, n_agent_per_graph, -1).astype(np.float32)[..., 0]
@@ -440,17 +437,24 @@ class CATK_Simulator(catk_sim_agent.CATK_SimAgentActor):
 
         # Current step xy for vel
         cur = state.current_sim_trajectory
-        cur_x = jax.device_get(cur.x)[0, :, :, 0]
-        cur_y = jax.device_get(cur.y)[0, :, :, 0]
+        cur_x_full = np.asarray(jax.device_get(cur.x))
+        cur_y_full = np.asarray(jax.device_get(cur.y))
+        cur_yaw_full = np.asarray(jax.device_get(cur.yaw))
+
+        def _extract_last(arr_full: np.ndarray) -> np.ndarray:
+            last = arr_full[..., -1]
+            return last.reshape(n_graphs, n_agent_per_graph)
+
+        cur_x = _extract_last(cur_x_full)
+        cur_y = _extract_last(cur_y_full)
+        cur_yaw_last = _extract_last(cur_yaw_full)
 
         # Next step
         if pred_xy_10hz is None:
             # Fallback: keep current
-            next_x = torch.from_numpy(cur_x.astype(jnp.float32))
-            next_y = torch.from_numpy(cur_y.astype(jnp.float32))
-            next_head = torch.from_numpy(
-                jax.device_get(cur.yaw)[0, :, :, 0].astype(jnp.float32)
-            )
+            next_x = _to_torch(cur_x.astype(np.float32))
+            next_y = _to_torch(cur_y.astype(np.float32))
+            next_head = _to_torch(cur_yaw_last.astype(np.float32))
         else:
             next_x = pred_xy_10hz[:, 0, 0].cpu().reshape(n_graphs, n_agent_per_graph)
             next_y = pred_xy_10hz[:, 0, 1].cpu().reshape(n_graphs, n_agent_per_graph)
@@ -460,18 +464,15 @@ class CATK_Simulator(catk_sim_agent.CATK_SimAgentActor):
                 )
             else:
                 # Approximate from displacement if no head
-                dx = next_x - torch.from_numpy(cur_x)
-                dy = next_y - torch.from_numpy(cur_y)
+                dx = next_x - _to_torch(cur_x)
+                dy = next_y - _to_torch(cur_y)
                 next_head = torch.atan2(dy, dx)
 
         # Velocity
-        vx = (next_x - torch.from_numpy(cur_x)) / TIME_INTERVAL
-        vy = (next_y - torch.from_numpy(cur_y)) / TIME_INTERVAL
+        vx = (next_x - _to_torch(cur_x)) / TIME_INTERVAL
+        vy = (next_y - _to_torch(cur_y)) / TIME_INTERVAL
 
-        if not hasattr(self, "_traj_shape_debug"):
-            print("[CATK] cur.x shape:", jax.device_get(cur.x).shape)
-            self._traj_shape_debug = True
-        base_shape = jax.device_get(cur.x).shape
+        base_shape = cur_x_full.shape
         new_shape = base_shape
         x = jnp.asarray(next_x.numpy(), dtype=jnp.float32).reshape(new_shape)
         y = jnp.asarray(next_y.numpy(), dtype=jnp.float32).reshape(new_shape)

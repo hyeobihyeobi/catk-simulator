@@ -16,5 +16,10 @@ val_intention_label/
 val_preprocessed_path/
 vis_results/
 checkpoints/
+outputs/
 *.ckpt
 *.tar
+*.log
+*.csv
+*.bak
+*.backup

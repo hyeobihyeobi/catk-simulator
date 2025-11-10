@@ -68,11 +68,12 @@ def simulate(cfg):
     ep_return = [eval_rtg] * runner.env.num_envs
     runner.run(ep_return=ep_return, vis =cfg.vis)
 if __name__ == '__main__':
+    message="Something Went Wrong! (code seems not run)".encode(encoding='utf-8')
     try:
         simulate()
-        requests.post("https://ntfy.sh/shnamtopic",
-        data="Simulation done successful".encode(encoding='utf-8'))
+        message="Simulation done successful".encode(encoding='utf-8')
     except Exception as e:
-        requests.post("https://ntfy.sh/shnamtopic",
-        data=f"Simulation failed with error: {e}".encode(encoding='utf-8'))
+        message=f"Simulation failed with error: {e}".encode(encoding='utf-8')
         raise e
+    finally:
+        requests.post("https://ntfy.sh/shnamtopic", data=message)
