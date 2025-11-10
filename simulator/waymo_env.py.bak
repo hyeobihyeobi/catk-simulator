@@ -2,14 +2,18 @@
 import numpy as np
 import os
 import gymnasium as gym
-import numpy as np
 import jax
 import jax.numpy as jnp
 from waymax import dynamics
 from simulator.waymo_base import WaymoBaseEnv
 from simulator.metric import Metric
 from simulator.utils import combin_traj,build_discretizer,get_cache_polylines_baseline
-from simulator.observation import get_obs_from_routeandmap_saved,preprocess_data_dist_jnp
+from simulator.observation import (
+    get_obs_from_routeandmap_saved_jit,
+    get_obs_from_routeandmap_saved_pmap,
+    preprocess_data_dist_jnp,
+)
+from simulator.observation import get_obs_from_routeandmap_saved
 def get_obs(*args):
     data_dict,sdc_obs = get_obs_from_routeandmap_saved(*args)
     obs = preprocess_data_dist_jnp(data_dict)
@@ -47,7 +51,10 @@ class WaymoEnv():
         action_type = ego_control_setting.action_type
         action_space = ego_control_setting.action_space
         npc_type = ego_control_setting.npc_policy_type
+        self.npc_type = npc_type
         self.data_conf = data_conf
+        self.num_devices = batch_dims[0]
+        multi_device = self.num_devices > 1
         if action_type == 'bicycle':
             env_dynamic_model = dynamics.InvertibleBicycleModel()
         elif action_type == 'waypoint':
@@ -59,16 +66,32 @@ class WaymoEnv():
             raise Warning('discrete action space has not been verified!')
             self.discretizer = build_discretizer(action_space)
         self.action_space_type = action_space.type
-        self.com_traj = jax.pmap(combin_traj)
-        self.dynamic_inverse = jax.pmap(env_dynamic_model.inverse)
-        # waymax_conf.update({'batch_dims': batch_dims})
+        if npc_type == 'catk':
+            if multi_device:
+                self.com_traj = combin_traj
+                self.dynamic_inverse = env_dynamic_model.inverse
+                self.get_obs_fn = get_obs_from_routeandmap_saved_pmap
+            else:
+                self.com_traj = combin_traj
+                self.dynamic_inverse = env_dynamic_model.inverse
+                self.get_obs_fn = get_obs_from_routeandmap_saved_jit
+        else:
+            if multi_device:
+                self.com_traj = jax.pmap(combin_traj)
+                self.dynamic_inverse = jax.pmap(env_dynamic_model.inverse)
+                self.get_obs_fn = get_obs_from_routeandmap_saved_pmap
+            else:
+                self.com_traj = jax.jit(combin_traj)
+                self.dynamic_inverse = jax.jit(env_dynamic_model.inverse)
+                self.get_obs_fn = get_obs_from_routeandmap_saved_jit
         self.env = WaymoBaseEnv(
                     waymax_conf=waymax_conf,
                     env_conf=env_conf,
                     action_space=action_space,
                     action_type=action_type,
                     dynamics_model=env_dynamic_model,
-                    npc = npc_type)
+                    npc = npc_type,
+                    num_devices=self.num_devices)
 
         self.metric = Metric(**metric_conf, batch_dims=batch_dims)
         self.log_rew_dict = {}
@@ -76,6 +99,32 @@ class WaymoEnv():
 
         self.path_to_map = os.path.join(data_conf.path_to_processed_map_route,'map')
         self.path_to_route = os.path.join(data_conf.path_to_processed_map_route,'route')
+
+        self._obs_uses_pmap = self.get_obs_fn is get_obs_from_routeandmap_saved_pmap
+
+    def _compute_obs(self, state):
+        if self._obs_uses_pmap:
+            state_for_obs = state
+            # pmap requires the first dimension to match num_devices
+            # Replicate map and route data across devices
+            map_arg = self.road_np
+            route_arg = self.route_np
+        else:
+            if self.num_devices == 1:
+                squeeze_leading_axis = lambda arr: arr[0] if (hasattr(arr, "shape") and arr.shape != () and arr.shape[0] == 1) else arr
+                state_for_obs = jax.tree_util.tree_map(squeeze_leading_axis, state)
+                map_arg = jax.device_put(self.road_np[0])
+                route_arg = jax.device_put(self.route_np[0])
+            else:
+                state_for_obs = state
+                map_arg = jax.device_put(self.road_np)
+                route_arg = jax.device_put(self.route_np)
+        data_dict, _ = self.get_obs_fn(state_for_obs, map_arg, route_arg)
+        data_dict = jax.tree_util.tree_map(jax.device_get, data_dict)
+        if not self._obs_uses_pmap and self.num_devices == 1:
+            data_dict = {k: v[np.newaxis, ...] for k, v in data_dict.items()}
+        obs = preprocess_data_dist_jnp(data_dict)
+        return obs, data_dict
 
     def get_expert_action(self)->np.ndarray:
         current_state = self.states[-1]
@@ -90,7 +139,7 @@ class WaymoEnv():
         cur_state = self.states[-1]
         self.road_np, self.route_np, self.intention_label = get_cache_polylines_baseline(cur_state, self.path_to_map, self.path_to_route, self.metric.intention_label_path)
         self.metric.reset(self.intention_label)
-        obs, obs_dict = get_obs(cur_state,self.road_np,self.route_np)
+        obs, obs_dict = self._compute_obs(cur_state)
         return obs, obs_dict
 
     def step(self,action=None, show_global=False):
@@ -116,8 +165,10 @@ class WaymoEnv():
 
 
         rewards,rew,next_state = self.env.pmap_sim(actions,current_state)
-        obs, obs_dict = get_obs(next_state,self.road_np,self.route_np)
-        done = np.array(list(next_state.is_done) * self.batch_dims[-1]).flatten()
+        obs, obs_dict = self._compute_obs(next_state)
+        is_done = np.asarray(jax.device_get(next_state.is_done))
+        is_done = is_done.reshape(-1)
+        done = np.repeat(is_done, self.batch_dims[-1]).astype(bool)
         self.states.append(next_state)
         self.metric.update(rewards,rew)
         # logger

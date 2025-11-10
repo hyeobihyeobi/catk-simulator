@@ -14,19 +14,24 @@ def get_cache_polylines_baseline(cur_state:datatypes.SimulatorState,
                                 path_to_map:str,
                                 path_to_route:str,
                                 intention_label_path:str=None):
+    
     cur_id = cur_state._scenario_id.reshape(cur_state.shape)
+    # cur_id may be (num_devices,) or (num_devices, B)
     whole_map_by_device_id = []
     whole_route_by_device_id = []
     intention_label = []
-    for device_id in range(cur_id.shape[0]):
+    dev_dim = cur_id.shape[0] if hasattr(cur_id, 'shape') else 1
+    has_batch = (hasattr(cur_id, 'ndim') and cur_id.ndim >= 2)
+    for device_id in range(dev_dim):
         whole_map_by_batch = []
         whole_route_by_batch = []
-        for batch_id in range(cur_id.shape[1]):
-            scenario_id = cur_id[device_id][batch_id]
-            if hasattr(scenario_id, "item"):
-                scenario_value = scenario_id.item()
-            else:
-                scenario_value = scenario_id
+        batch_range = range(cur_id.shape[1]) if has_batch else range(1)
+        for batch_id in batch_range:
+            scenario_id = cur_id[device_id] if not has_batch else cur_id[device_id][batch_id]
+            # Reduce to scalar
+            while hasattr(scenario_id, 'shape') and getattr(scenario_id, 'ndim', 0) > 0:
+                scenario_id = scenario_id[0]
+            scenario_value = scenario_id.item() if hasattr(scenario_id, 'item') else scenario_id
             scenario_str = str(scenario_value)
             whole_map_by_batch.append(
                 loading_data(
@@ -53,13 +58,12 @@ def get_cache_polylines_baseline(cur_state:datatypes.SimulatorState,
                         print(f'[LatentDriver] Missing intention label for {scenario_str}, defaulting to empty string.')
                         _MISSING_LABEL_IDS.add(scenario_str)
                     intention_label.append('')
+        whole_map_by_device_id.append(np.stack(whole_map_by_batch, axis=0))
+        whole_route_by_device_id.append(np.stack(whole_route_by_batch, axis=0))
+    road_np = np.stack(whole_map_by_device_id, axis=0)
+    route_np = np.stack(whole_route_by_device_id, axis=0)
+    return road_np, route_np, intention_label
 
-        whole_map_by_device_id.append(np.stack(whole_map_by_batch,axis=0))
-        # print(whole_map_by_device_id[-1].shape)
-        whole_route_by_device_id.append(np.stack(whole_route_by_batch,axis=0))
-    road_np = np.stack(whole_map_by_device_id,axis=0)
-    route_np = np.stack(whole_route_by_device_id,axis=0)
-    return road_np,route_np,intention_label
 
 
 def build_discretizer(action_space, seperate=False):

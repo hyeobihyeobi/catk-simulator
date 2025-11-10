@@ -22,7 +22,8 @@ class WaymoBaseEnv():
                 dynamics_model,
                 action_space,
                 action_type,
-                npc:str) -> None:
+                npc:str,
+                num_devices:int=1) -> None:
         is_customized = waymax_conf.pop('customized')
         if not is_customized:
             self.data_iter = dataloader.simulator_state_generator(config=DatasetConfig(**waymax_conf))
@@ -63,12 +64,17 @@ class WaymoBaseEnv():
             actors.append(npc_actor)
         elif npc_policy_type=='catk':
             controlled_object = _config.ObjectType.VALID
-            npc_actor = agents.CATK_Simulator(
-            is_controlled_func=lambda state: ~state.object_metadata.is_sdc,
-            # additional_lookahead_points = 40,
-            # additional_lookahead_distance = 40.0,
-            )
-            actors.append(npc_actor)
+            # Create multiple CATK agents, one per GPU
+            num_devices = jax.local_device_count()
+            self.catk_agents = []
+            for device_id in range(num_devices):
+                npc_actor = agents.CATK_Simulator(
+                    is_controlled_func=lambda state: ~state.object_metadata.is_sdc,
+                    device_id=device_id,
+                )
+                self.catk_agents.append(npc_actor)
+                if device_id == 0:  # Only add first one to actors list for compatibility
+                    actors.append(npc_actor)
         elif npc_policy_type=='expert':
             controlled_object = _config.ObjectType.SDC
         else:
@@ -81,17 +87,62 @@ class WaymoBaseEnv():
         config=_config.EnvironmentConfig(**env_conf)
         )
         if npc_policy_type=='catk':
-            self.pmap_sim = self.simulate
-            self.pmap_reset = self.reset_func
-            sys.stdout.write('\n\n Using CATK NPC policy \n\n')
+            if num_devices > 1:
+                self.pmap_sim = self.simulate_catk_multi_gpu
+                self.pmap_reset = jax.pmap(self.reset_func)
+                sys.stdout.write(f'\n\n Using CATK NPC policy with {num_devices} GPUs \n\n')
+            else:
+                self.pmap_sim = self.simulate
+                self.pmap_reset = self.reset_func
+                sys.stdout.write('\n\n Using CATK NPC policy (single GPU) \n\n')
             sys.stdout.flush()
         else:
             self.pmap_sim = jax.pmap(self.simulate)
             self.pmap_reset = jax.pmap(self.reset_func)
 
     def reset_func(self,scenario: datatypes.SimulatorState):
-        states = [self.env.reset(scenario)]
-        return states
+        """Reset a single scenario and return a single state.
+
+        This function is pmapped over devices. It must NOT return a Python
+        list; it should return the state object directly so that pmap can
+        stack them along the device axis.
+        """
+        return self.env.reset(scenario)
+    def simulate_catk_multi_gpu(self, actions: np.array, current_state: datatypes.SimulatorState):
+        """Wrapper for CATK simulation with multi-GPU support."""
+        num_devices = len(self.catk_agents)
+        
+        # Process each device batch separately with its corresponding GPU
+        results = []
+        for device_id in range(num_devices):
+            # Extract the slice for this device (already split by pmap)
+            state_slice = jax.tree_map(lambda x: x[device_id] if (hasattr(x, "__getitem__") and hasattr(x, "shape") and len(x.shape) > 0 and x.shape[0] == num_devices) else x, current_state)
+            actions_slice = actions[device_id] if actions.shape[0] == num_devices else actions
+            
+            # Temporarily replace the CATK agent in select_action_list
+            old_select_action = self.select_action_list[1] if len(self.select_action_list) > 1 else None
+            if old_select_action:
+                self.select_action_list[1] = self.catk_agents[device_id].select_action
+            
+            # Run simulation for this device
+            result = self.simulate(actions_slice, state_slice)
+            results.append(result)
+            
+            # Restore original select_action
+            if old_select_action:
+                self.select_action_list[1] = old_select_action
+        
+        # Stack results back into device dimension
+        merged_rewards = jax.tree_map(
+            lambda *xs: jnp.stack(xs, axis=0), *[r[0] for r in results]
+        )
+        merged_rew = jnp.stack([r[1] for r in results], axis=0)
+        merged_state = jax.tree_map(
+            lambda *xs: jnp.stack(xs, axis=0), *[r[2] for r in results]
+        )
+        
+        return merged_rewards, merged_rew, merged_state
+    
     def simulate(self,actions:np.array,current_state: datatypes.SimulatorState):
         outputs = [
             select_action({'actions':actions}, current_state, None, None)
