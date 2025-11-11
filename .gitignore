@@ -15,8 +15,8 @@ train_preprocessed_path/
 val_intention_label/
 val_preprocessed_path/
 vis_results/
-checkpoints/
-# outputs/
+# checkpoints/
+outputs/
 *.ckpt
 *.tar
 *.log
