@@ -2,7 +2,7 @@
 
 > A high-performance, closed-loop planning simulator that integrates LatentDriver-style policy learning with Waymax simulation and the CAT-K reactive agent stack for non-ego agents.
 
-![LatentDriver Overview](docs/latentdriver.jpg)
+<!-- ![LatentDriver Overview](docs/latentdriver.jpg) -->
 
 This repository combines two powerful lines of work:
 
