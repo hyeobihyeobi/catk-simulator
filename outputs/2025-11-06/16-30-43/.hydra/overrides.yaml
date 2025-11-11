@@ -1,6 +1,0 @@
-- method=latentdriver
-- ++waymax_conf.path=''
-- ++data_conf.path_to_processed_map_route=''
-- ++metric_conf.intention_label_path=''
-- ++batch_dims=[4,125]
-- ++ego_control_setting.npc_policy_type=catk
