@@ -15,13 +15,12 @@ train_preprocessed_path/
 val_intention_label/
 val_preprocessed_path/
 vis_results/
-# checkpoints/
+checkpoints/
 outputs/
-# *.ckpt
-# *.tar
+*.ckpt
+*.tar
 *.log
 *.csv
 *.bak
 *.backup
-
 scripts/set_env.sh

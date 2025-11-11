@@ -1,5 +1,0 @@
-- ++batch_dims=[1,1000]
-- ++waymax_conf.path=/media/sunghjopnam/HDD_4T/waymo_open_dataset_motion_v_1_3_0/waymo_open_dataset_motion_v_1_1_0/uncompressed/tf_example/validation/validation_tfexample.tfrecord@150
-- ++waymax_conf.drop_remainder=False
-- ++data_conf.path_to_processed_map_route=/home/sunghjopnam/Documents/Git/LatentDriver/val_preprocessed_path
-- ++metric_conf.intention_label_path=/home/sunghjopnam/Documents/Git/LatentDriver/val_intention_label
