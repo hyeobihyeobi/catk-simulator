@@ -17,8 +17,8 @@ val_preprocessed_path/
 vis_results/
 checkpoints/
 outputs/
-# *.ckpt
-# *.tar
+*.ckpt
+*.tar
 *.log
 *.csv
 # *.bak
