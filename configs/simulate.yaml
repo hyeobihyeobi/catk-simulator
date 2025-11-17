@@ -20,6 +20,9 @@ waymax_conf:
   distributed: True
   drop_remainder: True # Argument for tf.data.Dataset.batch. Set True to drop remainder if the last batch does not contain enough examples. Note training should not be affected since it is looping over all data for multiple epochs. For evaluation, it should be set to False to include all examples.
   customized: False # added for customized rollout on set of specific scenarios, should change the path accordingly
+  include_sdc_paths: True #JY
+  num_paths: 45
+  num_points_per_path: 800
 
 ego_control_setting:
   ego_policy_type: custom #[custom, expert,stationary]

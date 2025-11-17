@@ -37,12 +37,14 @@ class BertEncoder(nn.Module):
         self.use_gradient_checkpointing = kwargs.pop('gradient_checkpointing', False)
         if online:
             config_bert = AutoConfig.from_pretrained(os.path.join('prajjwal1',type_name))  # load config from hugging face model
-            self.model = AutoModel.from_config(config=config_bert)
-
+            config_bert.hidden_size = 128 #JY
+            self.model = AutoModel.from_config(config=config_bert)   
+            
         else:
             self.model = AutoModel.from_pretrained(type_name)
             # model
             config_bert = AutoConfig.from_pretrained(os.path.join(type_name,'config.json'))
+            config_bert.hidden_size = 128
             # self.model = randomize_model(self.model)
             # self.model = AutoModel.from_config(config=config_bert)
         if self.use_gradient_checkpointing:
