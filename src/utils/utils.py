@@ -19,7 +19,9 @@ def update_waymax_config(config):
         max_num_objects=config.waymax_conf.max_num_objects,
         controlled_object=_config.ObjectType.SDC if config.ego_control_setting.npc_policy_type=='expert' else _config.ObjectType.VALID,
         compute_reward = True,
-        rewards = _config.LinearCombinationRewardConfig(rewards=config.pop('rewards')))
+        rewards = _config.LinearCombinationRewardConfig(rewards=config.pop('rewards')),
+#         init_step=20
+        )
     config.update(dict(env_conf=env_conf))
     config.waymax_conf.update({'batch_dims': config.batch_dims})
     return config

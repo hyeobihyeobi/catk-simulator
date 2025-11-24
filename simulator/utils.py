@@ -14,7 +14,7 @@ def get_cache_polylines_baseline(cur_state:datatypes.SimulatorState,
                                 path_to_map:str,
                                 path_to_route:str,
                                 intention_label_path:str=None):
-    
+
     cur_id = cur_state._scenario_id.reshape(cur_state.shape)
     # cur_id may be (num_devices,) or (num_devices, B)
     whole_map_by_device_id = []

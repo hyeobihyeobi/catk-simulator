@@ -33,7 +33,7 @@ class TrainingDataCollector():
         self.idx = 0
         while True:
             try:
-                obs, obs_dict = self.env.reset()
+                obs, obs_dict, reference_lines, target = self.env.reset()
                 obs = obs.reshape(self.env.num_envs,-1,7)
                 obs_depth,obs_dim = obs.shape[1],obs.shape[-1]
                 states = (obs).reshape(self.env.num_envs,-1,obs_depth,obs_dim)
@@ -77,7 +77,7 @@ class TrainingDataCollector():
                     actions_bicycle[:,-1] = actions_to_collect['bicycle_actions']
                     actions_waypoints[:,-1] = actions_to_collect['waypoints_actions']
 
-                    obs, obs_dict,rew, done, info = self.env.step(self.env.get_expert_action(),show_global=False)
+                    obs, obs_dict,rew, done, info, reference_lines = self.env.step(self.env.get_expert_action(),show_global=False)
                     obs = obs.reshape(self.env.num_envs,-1,7)
                     state = (obs.reshape(self.env.num_envs,-1,obs_depth,obs_dim))
                     states = np.concatenate([states,state],axis=1)

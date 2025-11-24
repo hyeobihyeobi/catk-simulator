@@ -63,7 +63,11 @@ class BaseSimulator():
 
     def render(self, vis, predictions, model_name):
         def save_image():
-            img = plot_seq2image(state=self.env.states[-1], predictions=predictions, batch_idx=j)
+#             img = plot_seq2image(state=self.env.states[-1], predictions=predictions, batch_idx=j)
+
+            last_pred = predictions[-1] if isinstance(predictions, list) and len(predictions) > 0 else predictions
+            img = plot_seq2image(state=self.env.states[-1], predictions=last_pred, batch_idx=j)
+
             img.savefig(name+'.pdf',dpi=300,format='pdf')
             plt.close(img)
             print('Saved Image: ', name)
@@ -81,9 +85,18 @@ class BaseSimulator():
                 center_agent_idx=-1,
                 verbose=False
             )
-            for state in tqdm(self.env.states):
-                imgs.append(plot_image(state = state, predictions=predictions, batch_idx=j,viz_config=vis_config))
-                mediapy.write_video(name+'.mp4',imgs , fps=10)
+#             for state in tqdm(self.env.states):
+#                 imgs.append(plot_image(state = state, predictions=predictions, batch_idx=j,viz_config=vis_config))
+#                 mediapy.write_video(name+'.mp4',imgs , fps=10)
+
+            for t, state in enumerate(tqdm(self.env.states)):
+                if isinstance(predictions, list) and len(predictions) > 0:
+                    pred_t = predictions[min(t, len(predictions) - 1)]
+                else:
+                    pred_t = predictions
+                imgs.append(plot_image(state=state, predictions=pred_t, batch_idx=j, viz_config=vis_config))
+            mediapy.write_video(name+'.mp4', imgs, fps=10)
+
             print('Saved Video: ', name)
 
         if vis==False:

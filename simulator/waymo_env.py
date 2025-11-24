@@ -496,7 +496,8 @@ class WaymoEnv():
     def get_expert_action(self)->np.ndarray:
         current_state = self.states[-1]
         traj = self.com_traj(current_state)
-        action = self.dynamic_inverse(traj, current_state.object_metadata,jnp.zeros(self.batch_dims[0],dtype=jnp.int32))
+#         action = self.dynamic_inverse(traj, current_state.object_metadata,jnp.zeros(self.batch_dims[0],dtype=jnp.int32))
+        action = self.dynamic_inverse(traj, current_state.object_metadata, jnp.int32(0))
         action = np.array(action.data[current_state.object_metadata.is_sdc])
         return action
 
@@ -509,9 +510,9 @@ class WaymoEnv():
         self.metric.reset(self.intention_label)
         obs, obs_dict = self._compute_obs(cur_state)
 
-        reference_lines = get_reference_line(cur_state)
+#         reference_lines = get_reference_line(cur_state)
         target = None
-        # reference_lines, target = None, None
+        reference_lines, target = None, None
         return obs, obs_dict, reference_lines, target
 
     def step(self,action=None, show_global=False):
@@ -541,10 +542,10 @@ class WaymoEnv():
         is_done = np.asarray(jax.device_get(next_state.is_done))
         is_done = is_done.reshape(-1)
 
-        DebugVisualisation().plot_map(obs_dict['roadgraph_obs'], obs_dict['route_segments'])
+#         DebugVisualisation().plot_map(obs_dict['roadgraph_obs'], obs_dict['route_segments'])
 
-        reference_lines = get_reference_line(next_state)
-        # reference_lines = None
+#         reference_lines = get_reference_line(next_state)
+        reference_lines = None
         done = np.repeat(is_done, self.batch_dims[-1]).astype(bool)
         self.states.append(next_state)
         self.metric.update(rewards,rew)
@@ -563,7 +564,7 @@ class WaymoEnv():
             self.metric.collect_batch(info)
             if show_global:
                 print('\n',self.metric.get_global_info())
-        return (obs, obs_dict,np.array(rew).reshape(self.num_envs,), done, info, reference_lines)
+        return (obs, obs_dict, np.array(rew).reshape(self.num_envs,), done, info, reference_lines)
 
 
     @property

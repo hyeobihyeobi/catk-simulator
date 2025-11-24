@@ -5,8 +5,10 @@ import numpy as np
 from waymax.datatypes import observation
 import chex
 
+from waymax.datatypes.constant import TIME_INTERVAL
+
 def drop_zero_on_roadobs(roadgraph_obs:np.array,
-                         max_roadgraph_segments:int = 40):
+                            max_roadgraph_segments:int = 40):
     num_device,B,_,attribute = roadgraph_obs.shape
 
     vali_mask = np.where(roadgraph_obs.sum(-1)!=0,True,False)
@@ -70,12 +72,16 @@ def get_vehicle_obs(sdc_obs, timestep):
     valid_mask = sdc_obs.trajectory.valid[...,:,:timestep,jnp.newaxis]
     xy = sdc_obs.trajectory.xy[...,:,:timestep,:] * valid_mask
     # speed [objs,1]
-    speed = sdc_obs.trajectory.speed[...,:,:timestep,jnp.newaxis] * valid_mask
+#     speed = sdc_obs.trajectory.speed[...,:,:timestep,jnp.newaxis] * valid_mask
+    vel_xy = sdc_obs.trajectory.vel_xy[...,:timestep,:] * valid_mask
+
+    acc_xy = jnp.diff(vel_xy, axis=-2, prepend=vel_xy[..., :1, :]) / TIME_INTERVAL
+    acc_xy = acc_xy * valid_mask
     # yaw [objs,1]
     yaw = sdc_obs.trajectory.yaw[...,:,:timestep,jnp.newaxis] * 180 / np.pi * valid_mask
     width = sdc_obs.trajectory.width[...,:,:timestep,jnp.newaxis] * valid_mask
     length = sdc_obs.trajectory.length[...,:,:timestep,jnp.newaxis] * valid_mask
-    vehicle_obs = jnp.concatenate([xy,width,length,yaw,speed],axis=-1)
+    vehicle_obs = jnp.concatenate([xy, width, length, yaw, vel_xy, acc_xy, valid_mask], axis=-1)
     return vehicle_obs
 def downsampled_elements_transformation(elements,
                                         pose_global2ego,
@@ -210,7 +216,7 @@ def get_obs_from_routeandmap_saved(
                             jnp.linspace(0,B-1,B).astype(int),
                             sdc_idx.reshape(-1)].set(False)
     his_veh_trajs = jnp.where(vehicle_exceed_masks[...,jnp.newaxis,jnp.newaxis],0,his_veh_trajs).reshape((-1,)+his_veh_trajs.shape[2:])
-    
+
     # type_vehicles [bs,7]
     type_vehicles = add_type_and_reset_padding(veh_segs, 2)
     # set sdc type on type_vehicles into 4
@@ -230,7 +236,7 @@ def get_obs_from_routeandmap_saved(
         his_veh_trajs = his_veh_trajs
         # traj_obs=traj_obs,
         # traj_next_stamp=traj_next_stamp,
-    ), sdc_obs    
+    ), sdc_obs
 
 
 get_obs_from_routeandmap_saved_pmap = jax.pmap(

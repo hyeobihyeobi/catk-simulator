@@ -1,4 +1,4 @@
-vis: False # whether to visualize the simulation, can be [False, 'image', 'video'].
+vis: 'video' # whether to visualize the simulation, can be [False, 'image', 'video'].
 
 # The setting below is not used in behavior cloning
 rewards:
@@ -26,7 +26,7 @@ waymax_conf:
 
 ego_control_setting:
   ego_policy_type: custom #[custom, expert,stationary]
-  npc_policy_type: catk #[expert, idm, catk]
+  npc_policy_type: idm #[expert, idm, catk]
   # should be defined in method config file
   action_type: ${action_space.dynamic_type}
   action_space: ${action_space}

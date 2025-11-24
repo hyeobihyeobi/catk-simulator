@@ -111,27 +111,27 @@ class WaymoBaseEnv():
     def simulate_catk_multi_gpu(self, actions: np.array, current_state: datatypes.SimulatorState):
         """Wrapper for CATK simulation with multi-GPU support."""
         num_devices = len(self.catk_agents)
-        
+
         # Process each device batch separately with its corresponding GPU
         results = []
         for device_id in range(num_devices):
             # Extract the slice for this device (already split by pmap)
             state_slice = jax.tree_map(lambda x: x[device_id] if (hasattr(x, "__getitem__") and hasattr(x, "shape") and len(x.shape) > 0 and x.shape[0] == num_devices) else x, current_state)
             actions_slice = actions[device_id] if actions.shape[0] == num_devices else actions
-            
+
             # Temporarily replace the CATK agent in select_action_list
             old_select_action = self.select_action_list[1] if len(self.select_action_list) > 1 else None
             if old_select_action:
                 self.select_action_list[1] = self.catk_agents[device_id].select_action
-            
+
             # Run simulation for this device
             result = self.simulate(actions_slice, state_slice)
             results.append(result)
-            
+
             # Restore original select_action
             if old_select_action:
                 self.select_action_list[1] = old_select_action
-        
+
         # Stack results back into device dimension
         merged_rewards = jax.tree_map(
             lambda *xs: jnp.stack(xs, axis=0), *[r[0] for r in results]
@@ -140,9 +140,9 @@ class WaymoBaseEnv():
         merged_state = jax.tree_map(
             lambda *xs: jnp.stack(xs, axis=0), *[r[2] for r in results]
         )
-        
+
         return merged_rewards, merged_rew, merged_state
-    
+
     def simulate(self,actions:np.array,current_state: datatypes.SimulatorState):
         outputs = [
             select_action({'actions':actions}, current_state, None, None)

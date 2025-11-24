@@ -66,8 +66,8 @@ def gen_sineembed_for_position(pos_tensor, hidden_dim=256):
     return pos
 
 def apply_cross_attention(kv_feature, kv_mask, kv_pos, query_content, query_embed, attention_layer,
-                              dynamic_query_center=None, layer_idx=0, use_local_attn=False, query_index_pair=None,
-                              query_content_pre_mlp=None, query_embed_pre_mlp=None):
+                            dynamic_query_center=None, layer_idx=0, use_local_attn=False, query_index_pair=None,
+                            query_content_pre_mlp=None, query_embed_pre_mlp=None):
         """
         Args:
             kv_feature (B, N, C):
@@ -132,9 +132,9 @@ class GMMHead(nn.Module):
         return torch.concat([prob, out_model, yaw], dim=-1)
 
 class MPA_blocks(nn.Module):
-    def __init__(self, 
-                 hidden_size,
-                 num_cross_attention_heads,
+    def __init__(self,
+                hidden_size,
+                num_cross_attention_heads,
                  **kwargs):
         super().__init__()
         self.decoder_layer = TransformerDecoderLayer(
@@ -175,7 +175,7 @@ class CarPLAN(pl.LightningModule):
         num_cross_attention_heads=4,
         est_layer = 0,
         bert_chunk_size = None,
-        
+
         dim=128,
         state_channel=6,
         polygon_channel=6,
@@ -232,7 +232,7 @@ class CarPLAN(pl.LightningModule):
         no_prediction_for_CLSR = False,
         shared_expert_weight = 1.0,
         is_carplan = False,
-        
+
         **kwargs,
     ):
         super().__init__()
@@ -258,9 +258,9 @@ class CarPLAN(pl.LightningModule):
         # self.query_pe = TrainableQueryProvider(num_queries=mode, num_query_channels=hidden_size, init_scale=0.01)
         # self.action_distribution_queries = TrainableQueryProvider(num_queries=mode, num_query_channels=hidden_size, init_scale=0.01)
         # self.mpad_blocks = nn.ModuleList([MPA_blocks(hidden_size=hidden_size, num_cross_attention_heads=num_cross_attention_heads) for _ in range(num_of_decoder)])
-        
+
         #         self.imagine_query = None
-        
+
         if is_carplan:
             self.planning_decoder = deepseek_decoder(
                 num_mode=num_modes,
@@ -304,18 +304,18 @@ class CarPLAN(pl.LightningModule):
                     cat_x=cat_x,
                     future_steps=future_steps,
                 )
-        
+
         # if self.ref_free_traj:
         self.ref_free_decoder = MLPLayer(dim, 2 * dim, future_steps * 4)
-        
+
         self.loc_predictor = MLPLayer(dim, 2 * dim, future_steps * 2)
         self.yaw_predictor = MLPLayer(dim, 2 * dim, future_steps * 2)
         self.vel_predictor = MLPLayer(dim, 2 * dim, future_steps * 2)
-        
+
         self.optim_conf = kwargs['optimizer']
         self.sched_conf = kwargs['scheduler']
         self.lr = kwargs['learning_rate']
-        
+
     def init_world(self, world_conf, pretrain_world, freeze_world):
         self.world_model = build_world(world_conf)
         if pretrain_world is not None:
@@ -324,7 +324,7 @@ class CarPLAN(pl.LightningModule):
         if freeze_world:
             for para in self.world_model.parameters():
                 para.requires_grad = False
-    
+
     def init_enc(self, bert_conf, pretrain_enc, freeze_enc):
         self.bert = build_enc(bert_conf)
         if pretrain_enc is not None:
@@ -362,7 +362,7 @@ class CarPLAN(pl.LightningModule):
                     new_chunk = chunk_size - 1
                 rank_zero_info(f"[LantentDriver] BERT chunk size {chunk_size} caused OOM. Retrying with {new_chunk}.")
                 chunk_size = max(1, new_chunk)
-    
+
     def forward(
     #     self,
     #     ss, # bs , seq_len, state_attributes, state_dim
@@ -378,7 +378,7 @@ class CarPLAN(pl.LightningModule):
         reference_lines,
         timesteps,
         padding_mask,
-    ):   
+    ):
         # reference_lines = {
         #     "position": position,
         #     "vector": vector,
@@ -390,7 +390,7 @@ class CarPLAN(pl.LightningModule):
         flattened_states = ss.reshape(batch_size * seq_length, state_elements, state_dims)
         bert_embeddings = self._encode_with_bert(flattened_states)
         bert_embeddings = bert_embeddings.reshape(batch_size, seq_length, -1, self.bert.hidden_size)
-        
+
         actions_layers = []
         cur_latent_token = bert_embeddings[:,:,0:1,:]
         B,T,_,_ = bert_embeddings.shape
@@ -400,39 +400,39 @@ class CarPLAN(pl.LightningModule):
         # fut_latent_dis = None
         latent_dist = None
         rep_dist = None
-        
+
         current_bert_embeddings = bert_embeddings[:, 1, 1:]
-            
+
         input_batch_type = flattened_states[..., 0]
-        
+
         car_mask = (input_batch_type == 2).unsqueeze(-1)
         road_graph_mask = (input_batch_type == 3).unsqueeze(-1)
         route_mask = (input_batch_type == 1).unsqueeze(-1)
         sdc_mask = (input_batch_type == 4).unsqueeze(-1)
         # current_bert_padding_mask = (~torch.logical_or(torch.logical_or(torch.logical_or(route_mask, car_mask), road_graph_mask), sdc_mask)).squeeze(-1).reshape(batch_size, T, -1)[:, 1]
         current_bert_padding_mask = (~torch.logical_or(torch.logical_or(route_mask, car_mask), road_graph_mask)).squeeze(-1).reshape(batch_size, T, -1)[:, 1]
-        
+
         agent_embeddings_for_prediction = current_bert_embeddings[:, 20:148] + bert_embeddings[:, 1, 0:1]
         loc = self.loc_predictor(agent_embeddings_for_prediction).view(B, 128, 80, 2)
         yaw = self.yaw_predictor(agent_embeddings_for_prediction).view(B, 128, 80, 2)
         vel = self.vel_predictor(agent_embeddings_for_prediction).view(B, 128, 80, 2)
         prediction = torch.cat([loc, yaw, vel], dim=-1)
-        
+
         ref_line_available = reference_lines["position"].shape[1] > 0
         R, M = reference_lines["position"].shape[1], 12
-        
+
         if ref_line_available:
             trajectory, probability, pred_scenario_type, q, tgt_route, gates, load, gates_dict, dist_predictions, scores_list = self.planning_decoder(
                 reference_lines, {"enc_emb": current_bert_embeddings, "enc_key_padding_mask": current_bert_padding_mask, "enc_pos": None, "x_scene_encoder": None}
             )
         else:
             trajectory, probability, pred_scenario_type, q, tgt_route, gates, load, gates_dict,scores_list = None, None, None, None, None, None, None, None, None
-        
+
         # if self.ref_free_traj:
         ref_free_traj = self.ref_free_decoder(bert_embeddings[:, 1, 0]).reshape(
             batch_size, 80, 4
         )
-        
+
         out = {
             "trajectory": trajectory,
             "probability": probability,  # (bs, R, M)
@@ -441,7 +441,7 @@ class CarPLAN(pl.LightningModule):
             "scores_list": scores_list,
             "ref_free_trajectory": ref_free_traj,
         }
-        
+
         if not self.training:
             ref_free_traj_angle = torch.arctan2(
                 ref_free_traj[..., 3], ref_free_traj[..., 2]
@@ -471,9 +471,10 @@ class CarPLAN(pl.LightningModule):
                 best_trajectory = output_ref_free_trajectory[:, 0]
         else:
             best_trajectory = None
-            
-        return out, best_trajectory,latent_dist, rep_dist
-        
+
+#         return out, best_trajectory,latent_dist, rep_dist
+        return out, output_ref_free_trajectory,latent_dist, rep_dist
+
     def get_predictions(
         self, states, actions, reference_lines, timesteps, num_envs=1, **kwargs
     ):
@@ -555,7 +556,7 @@ class CarPLAN(pl.LightningModule):
             ).to(dtype=torch.long)
         else:
             padding_mask = None
-        
+
         # import pdb; pdb.set_trace()
         for bs in range(num_envs):
             for ref_idx, ref_lines in enumerate(reference_lines["position"][bs]):
@@ -579,7 +580,7 @@ class CarPLAN(pl.LightningModule):
         #     _, _, _, action_ = unpack_action(action[-1].reshape(B*T,-1,7), B, T)
         #     action = action_.reshape(B, T, -1)
         return action
-    
+
     def get_planning_loss(self, future_projection, valid_mask, trajectory, probability, target_valid_mask, target, bs):
         """
         trajectory: (bs, R, M, T, 4)
@@ -605,7 +606,7 @@ class CarPLAN(pl.LightningModule):
         target_label[torch.arange(bs), target_r_index, target_m_index] = 1
 
         best_trajectory = trajectory[torch.arange(bs), target_r_index, target_m_index]
-        
+
         reg_loss = F.smooth_l1_loss(best_trajectory, target, reduction="none").sum(-1)
         reg_loss = (reg_loss * target_valid_mask)[~unvalid_batch_mask].sum() / target_valid_mask[~unvalid_batch_mask].sum()
 
@@ -629,12 +630,12 @@ class CarPLAN(pl.LightningModule):
         prediction_loss = prediction_loss.sum() / valid_mask.sum()
 
         return prediction_loss
-    
+
     def training_step(self, batch, batch_idx):
-        
+
         (ss, position, vector, orientation, valid_mask, future_projection, target, target_vel, target_valid_mask, is_sdc) = batch
         B, T, _, _ = ss.shape
-        
+
         for bs in range(B):
             for ref_idx, ref_lines in enumerate(position[bs]):
                 ref_valid_mask = valid_mask[bs, ref_idx]
@@ -644,14 +645,14 @@ class CarPLAN(pl.LightningModule):
                 total_length = dists.sum()
                 if total_length > 120:
                     valid_mask[bs, ref_idx] = False
-        
+
         import matplotlib.pyplot as plt
         route_feat = ss[:, :, :20]
         agent_feat = ss[:, :, 20:148]
         road_feat = ss[:, :, 148:]
-        
+
         agent_mask = (ss[:, 1, 20:148, 0] == 2)
-        
+
         # for bs in range(B):
         #     sdc_idx = torch.where(is_sdc[bs])[0]
         #     for ag_idx in range(128):
@@ -672,7 +673,7 @@ class CarPLAN(pl.LightningModule):
         #     for rt_idx in range(20):
         #         ss_valid_mask = (route_feat[bs, :, rt_idx, 0] == 1)
         #         plt.plot(route_feat[bs, :, rt_idx, 1][ss_valid_mask].cpu(), route_feat[bs, :, rt_idx, 2][ss_valid_mask].cpu(), "ko")
-            
+
         #     for ref_idx, ref_lines in enumerate(position[bs]):
         #         ref_valid_mask = valid_mask[bs, ref_idx]
         #         plt.plot(ref_lines[:, 0][ref_valid_mask].cpu(), ref_lines[:, 1][ref_valid_mask].cpu(), 'y-')
@@ -680,14 +681,14 @@ class CarPLAN(pl.LightningModule):
         #     plt.close()
 
         out, action_preds,rep_dist, latent_dist = self.forward(ss, position, vector, orientation, valid_mask, future_projection)
-        
+
         trajectory, probability, prediction = (
             out["trajectory"][:B],
             out["probability"][:B],
             out["prediction"][:B],
         )
         ref_free_trajectory = out.get("ref_free_trajectory", None)
-        
+
         targets_pos = target
         # target_valid_mask = target_valid_mask
         targets_vel = target_vel
@@ -702,7 +703,7 @@ class CarPLAN(pl.LightningModule):
             ],
             dim=-1,
         )
-        
+
         ego_reg_loss, ego_cls_loss = self.get_planning_loss(
             future_projection, valid_mask, trajectory, probability.to(torch.float32), target_valid_mask[is_sdc], target[is_sdc], B
         )
@@ -718,12 +719,12 @@ class CarPLAN(pl.LightningModule):
             ).sum() / target_valid_mask[is_sdc].sum()
         else:
             ego_ref_free_reg_loss = ego_reg_loss.new_zeros(1)
-        
+
         prediction_loss = self.get_prediction_loss(
             prediction[agent_mask], target_valid_mask[agent_mask], target[agent_mask]
         )
         # prediction_loss = ego_reg_loss.new_zeros(1)
-            
+
         loss = (
             ego_reg_loss
             + ego_cls_loss
@@ -741,7 +742,7 @@ class CarPLAN(pl.LightningModule):
             })
         self.log_dict(logs,on_step=True)
         return loss
-        
+
     def configure_optimizers(self):
         self.optim_conf.update(dict(lr = self.lr))
         optimizer = build_optimizer(self.optim_conf, self)
@@ -755,11 +756,11 @@ class CarPLAN(pl.LightningModule):
             self.sched_conf.update(dict(total_steps=all_steps)) 
         elif self.sched_conf.type == 'ConstantLR':
             self.sched_conf.update(dict(total_iters=all_steps)) 
-            
+
         scheduler = build_scheduler(self.sched_conf,optimizer)
         scheduler = {
-          'scheduler': scheduler, # The LR scheduler instance (required)
-          'interval': 'step', # The unit of the scheduler's step size
-          'frequency': 1, # The frequency of the scheduler
+            'scheduler': scheduler, # The LR scheduler instance (required)
+            'interval': 'step', # The unit of the scheduler's step size
+            'frequency': 1, # The frequency of the scheduler
         }
         return [optimizer], [scheduler]

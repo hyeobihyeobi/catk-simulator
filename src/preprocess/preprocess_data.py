@@ -27,7 +27,7 @@ class Preprocessor(object):
     def __init__(self, config):
         """
         Initialize the Preprocessor with the given configuration.
-        
+
         Args:
             config (OmegaConf): The configuration object.
         """
@@ -35,10 +35,10 @@ class Preprocessor(object):
         waymax_conf = config.waymax_conf
         assert waymax_conf.pop('customized') == False, "You can only use this script to process the whole dataset."
         self.data_conf = config.data_conf
-        
+
         # Initialize data iterator
         self.data_iter = dataloader.simulator_state_generator(config=DatasetConfig(**waymax_conf))
-        
+
         # Set paths
         self.path_to_map = os.path.join(self.data_conf.path_to_processed_map_route, MAP_DIR_NAME)
         self.path_to_route = os.path.join(self.data_conf.path_to_processed_map_route, ROUTE_DIR_NAME)
@@ -47,7 +47,7 @@ class Preprocessor(object):
     def _check_and_create_dirs(self):
         """
         Check if directories exist and create them if not.
-        
+
         Raises:
             ValueError: If any of the output directories already exist.
         """
@@ -57,7 +57,7 @@ class Preprocessor(object):
             raise ValueError(f'The route has been dumped in {self.path_to_route}, please delete the route first')
         if os.path.exists(self.intention_label_path):
             raise ValueError(f'The intention label has been dumped in {self.intention_label_path}, please delete the intention label first')
-        
+
         os.makedirs(self.path_to_map, exist_ok=True)
         os.makedirs(self.path_to_route, exist_ok=True)
         os.makedirs(self.intention_label_path, exist_ok=True)
@@ -65,28 +65,28 @@ class Preprocessor(object):
     def _process_scenario(self, scen):
         """
         Process a single scenario to extract map, route, and intention label data.
-        
+
         Args:
             scen: A scenario object.
-            
+
         Returns:
             List of tuples containing data for each batch to be processed by workers.
         """
         cur_id = scen._scenario_id.reshape(-1)
-        
+
         # Extract map data
         road_obs, ids = get_whole_map(scen)
-        
+
         # Extract route data
         routes, ego_car_width = get_route_global(scen)
         routes = np.array(routes)
         ego_car_width = float(ego_car_width)
-        
+
         # Extract intention label data
         mask = scen.object_metadata.is_sdc
         sdc_xy = np.array(scen.log_trajectory.xy[mask, ...])
         yaw = np.array(scen.log_trajectory.yaw[mask, ...])
-        
+
         tasks = []
         for bs in range(len(cur_id)):
             tasks.append((
@@ -106,7 +106,7 @@ class Preprocessor(object):
                 cur_id[bs],
                 self.intention_label_path
             ))
-        
+
         return tasks
 
     def run(self):
@@ -114,7 +114,7 @@ class Preprocessor(object):
         Run the preprocessing pipeline.
         """
         self._check_and_create_dirs()
-        
+
         print(f'Start dumping whole map, the map will be saved in {self.path_to_map}')
         print(f'Start dumping route, the route will be saved in {self.path_to_route}')
         print(f'Start dumping intention label, the intention label will be saved in {self.intention_label_path}')
@@ -148,7 +148,7 @@ class Preprocessor(object):
 def run(cfg):
     """
     Entry point for the preprocessing script.
-    
+
     Args:
         cfg (OmegaConf): The configuration object.
     """

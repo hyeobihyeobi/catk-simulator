@@ -9,13 +9,13 @@ class LTDSimulator(BaseSimulator):
     def __init__(self, model, config, batch_dims):
         super().__init__(model, config, batch_dims)
         self.cfg = config
-    
+
     def run(self,ep_return:list, vis):
         self.idx = 0
         while True:
             try:
                 obs, obs_dict, reference_lines, target = self.env.reset()
-                
+
                 # import pdb; pdb.set_trace()
                 reference_lines = {
                     k: pad_sequence(
@@ -23,13 +23,13 @@ class LTDSimulator(BaseSimulator):
                     )
                     for k in reference_lines.keys()
                 }
-                
+
                 # import matplotlib.pyplot as plt
                 # for li, lane in enumerate(reference_lines["position"][2]):
                 #     plt.plot(lane[:, 0][reference_lines["valid_mask"][2][li]].cpu(), lane[:, 1][reference_lines["valid_mask"][2][li]].cpu(), 'g-')
                 # plt.savefig("/home/jyyun/workshop/LatentDriver/vis/temp.png")
                 # plt.close()
-                
+
                 # import pdb; pdb.set_trace()
                 obs = obs.reshape(self.env.num_envs,-1,7) #(B, N, 7)
                 obs_depth,obs_dim = obs.shape[1],obs.shape[-1]
@@ -48,7 +48,8 @@ class LTDSimulator(BaseSimulator):
                 done_ = False
                 self.T = 1
                 a = time.time()
-                
+
+                predictions = []
 
                 while not done_:
                     rewards = np.concatenate(
@@ -66,21 +67,23 @@ class LTDSimulator(BaseSimulator):
                             timesteps.to(dtype=torch.long),
                             num_envs=self.env.num_envs
                         )
-                    
-                        
+
                     if isinstance(action,torch.Tensor):
                         action = action.detach().cpu().numpy()
+
+                    predictions.append(action)
+                    action = action[:, 0]
                     control_action = action
 
                     obs, obs_dict,rew, done, info, reference_lines = self.env.step(control_action,show_global=True)
-                    
+
                     reference_lines = {
                         k: pad_sequence(
                             [f.to(self.device) for j in range(len(reference_lines[k])) for f in reference_lines[k][j]], batch_first=True
                         )
                         for k in reference_lines.keys()
                     }
-                    
+
                     actions = np.concatenate([actions,action[:,np.newaxis,...]],axis=1)
                     # actions[:, -1] = action
                     obs = obs.reshape(self.env.num_envs,-1,7)
@@ -110,7 +113,7 @@ class LTDSimulator(BaseSimulator):
                 self.idx += 1
                 print('Processed: ', self.idx, 'th batch, Time: ', time.time()-a, 's')
 
-                self.render(vis, self.cfg.method.model_name)
+                self.render(vis, predictions, self.cfg.method.model_name)
 
             except StopIteration:
                 print("StopIteration")

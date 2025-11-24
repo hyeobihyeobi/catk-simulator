@@ -23,3 +23,5 @@ outputs/
 *.csv
 *.bak
 *.backup
+
+scripts/set_env.sh
