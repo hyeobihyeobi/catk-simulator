@@ -25,6 +25,7 @@ import warnings
 
 import torch
 import numpy
+from debug_visualisation import DebugVisualisation
 
 def to_tensor(data):
     if isinstance(data, dict):
@@ -54,8 +55,8 @@ def resample_and_pad_zeros(path_xy: np.ndarray, target_n: int = 120, ds: float =
     target_n: 출력 길이 (예: 120)
     ds      : 샘플 간격(m)
     return  : (resampled_path, valid_mask)
-              resampled_path: (target_n,2) — 1m 간격 보간 + 0패딩
-              valid_mask: (target_n,) — 유효한 보간 구간(True)/패딩(False)
+            resampled_path: (target_n,2) — 1m 간격 보간 + 0패딩
+            valid_mask: (target_n,) — 유효한 보간 구간(True)/패딩(False)
     """
     P = np.asarray(path_xy, float)
     if len(P) < 2:
@@ -73,16 +74,16 @@ def resample_and_pad_zeros(path_xy: np.ndarray, target_n: int = 120, ds: float =
     valid_mask = q <= L
 
     out = np.zeros((target_n, 3), dtype=float)
-    
+
     if out[valid_mask].shape[0] < 2:
         out = np.zeros((target_n, 2))
         mask = np.zeros(target_n, dtype=bool)
         return out, mask
-    
+
     if np.any(valid_mask):
         out[valid_mask, 0] = np.interp(q[valid_mask], s, P[:, 0])
         out[valid_mask, 1] = np.interp(q[valid_mask], s, P[:, 1])
-        
+
         xy = out[valid_mask, :2]
         diffs = np.diff(xy, axis=0)
         yaw = np.arctan2(diffs[:,1], diffs[:,0])
@@ -162,16 +163,16 @@ def get_agents_gt(state):
             agents_future_vel_xy = state.log_trajectory.vel_xy[de, bs, :, 10:]
             agents_future_yaw = state.log_trajectory.yaw[de, bs, :, 10:]
             agents_future_valid = state.log_trajectory.valid[de, bs, :, 10:]
-            
+
             is_sdc_idx = state.object_metadata.is_sdc[de, bs]
             # ego_future_valid = state.log_trajectory.valid[de, bs, :, 11:][is_sdc_idx]
             # ego_future = ego_future[is_sdc_idx][ego_future_valid]
             av_curr_xy = state.current_log_trajectory.xy[de, bs][is_sdc_idx].squeeze(0)
             av_curr_yaw = state.current_log_trajectory.yaw[de, bs][is_sdc_idx].squeeze(0)
-            
+
             # agents_curr_xy = state.current_log_trajectory.xy[de, bs]
             # agents_curr_yaw = state.current_log_trajectory.yaw[de, bs]
-            
+
             rotate_mat = np.array(
                 [
                     [np.cos(av_curr_yaw), -np.sin(av_curr_yaw)],
@@ -179,22 +180,22 @@ def get_agents_gt(state):
                 ],
                 dtype=np.float64,
             ).squeeze(-1)
-            
+
             agents_future_xy = np.matmul(agents_future_xy - av_curr_xy, rotate_mat)
             agents_future_vel_xy = np.matmul(agents_future_vel_xy, rotate_mat)
             agents_future_yaw = agents_future_yaw - av_curr_yaw
-            
+
             ##AV-Centric
             agents_future_xy = agents_future_xy[:, 1:] - agents_future_xy[:, 0:1]
             agents_future_yaw = agents_future_yaw[:, 1:] - agents_future_yaw[:, 0:1]
             target = np.concatenate([agents_future_xy, agents_future_yaw[..., None]], -1)
             target[~agents_future_valid[:, 1:]] = 0
-            
+
             target_list.append(target)
             target_valid_list.append(agents_future_valid[:, 1:])
             target_is_sdc_list.append(is_sdc_idx)
             target_vel_list.append(agents_future_vel_xy[:, 1:])
-    
+
     return {
             "target": target_list,
             "target_vel": target_vel_list,
@@ -208,7 +209,7 @@ def get_reference_line(state):
     d_orientation = []
     d_valid_mask = []
     d_future_projection = []
-    
+
     # import pdb; pdb.set_trace()
     for de in range(state.shape[0]):
         b_position_list = []
@@ -221,10 +222,10 @@ def get_reference_line(state):
             reference_line_valid_mask_list = []
             on_route = np.array(state.sdc_paths.on_route)[de, bs].squeeze(1)
             on_route_valid = np.array(state.sdc_paths.valid)[de, bs][on_route]
-            
+
             # import matplotlib.pyplot as plt
             for i in range(on_route_valid.shape[0]):
-                
+
                 if i >= 1:
                     break
                 # num_steps = np.sum(np.array(state.sdc_paths.valid)[i, :])
@@ -244,12 +245,12 @@ def get_reference_line(state):
                     continue
                 reference_line_list.append(path_xy)
                 reference_line_valid_mask_list.append(mask)
-                
+
                 # plt.plot(points[:, 0], points[:, 1], 'r-')
                 # plt.plot(points[start_idx:][0, 0], points[start_idx:][0, 1], 'bo')
                 # plt.savefig(f"/home/jyyun/workshop/LatentDriver/vis/origin_{i}_ref.png")
                 # plt.close()
-            
+
             remove_index = set()
             for i in range(len(reference_line_list)):
                 for j in range(i + 1, len(reference_line_list)):
@@ -261,18 +262,18 @@ def get_reference_line(state):
                     ).sum(-1)
                     if np.max(diff) < 0.5:
                         remove_index.add(j)
-                        
+
             reference_line_list = [
                 reference_line_list[i] for i in range(len(reference_line_list)) if i not in remove_index
             ]
-            
+
             n_points = int(120 / 1.0)
             position = np.zeros((len(reference_line_list), n_points, 2), dtype=np.float64)
             vector = np.zeros((len(reference_line_list), n_points, 2), dtype=np.float64)
             orientation = np.zeros((len(reference_line_list), n_points), dtype=np.float64)
             valid_mask = np.zeros((len(reference_line_list), n_points), dtype=np.bool_)
             future_projection = np.zeros((len(reference_line_list), 8, 2), dtype=np.float64)
-            
+
             ego_future = state.log_trajectory.xy[de, bs, :, 11:]
             is_sdc_idx = state.object_metadata.is_sdc[de, bs]
             ego_future_valid = state.log_trajectory.valid[de, bs, :, 11:][is_sdc_idx]
@@ -292,7 +293,7 @@ def get_reference_line(state):
                 ]
                 future_samples = ego_future[9::10]  # every 1s
                 future_samples = [Point(xy) for xy in future_samples]
-            
+
             for i, line in enumerate(reference_line_list):
                 subsample = line[reference_line_valid_mask_list[i]]
                 n_valid = len(subsample)
@@ -303,7 +304,7 @@ def get_reference_line(state):
                 vector[i, : n_valid - 1] = np.diff(subsample[:, :2], axis=0)
                 orientation[i, : n_valid - 1] = subsample[:-1, 2]
                 valid_mask[i, : n_valid - 1] = True
-                
+
                 if ego_future.shape[0] > 0:
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
@@ -320,7 +321,7 @@ def get_reference_line(state):
                 vector, rotate_mat
             )
             orientation -= np.array(av_curr_yaw)
-            
+
             # import matplotlib.pyplot as plt
             # for bat in range(26):
             #     plt.plot(position[bat][:, 0][valid_mask[bat]], position[bat][:, 1][valid_mask[bat]], 'r-')
@@ -339,14 +340,14 @@ def get_reference_line(state):
         d_orientation.append(b_orientation)
         d_valid_mask.append(b_valid_mask)
         d_future_projection.append(b_future_projection)
-    
+
     return {"position": d_position_list,
             "vector": d_vector_list,
             "orientation": d_orientation,
             "valid_mask": d_valid_mask,
             "future_projection": d_future_projection
     }
-    
+
 def get_obs(*args):
     data_dict,sdc_obs = get_obs_from_routeandmap_saved(*args)
     obs = preprocess_data_dist_jnp(data_dict)
@@ -507,7 +508,7 @@ class WaymoEnv():
         self.road_np, self.route_np, self.intention_label = get_cache_polylines_baseline(cur_state, self.path_to_map, self.path_to_route, self.metric.intention_label_path)
         self.metric.reset(self.intention_label)
         obs, obs_dict = self._compute_obs(cur_state)
-        
+
         reference_lines = get_reference_line(cur_state)
         target = None
         # reference_lines, target = None, None
@@ -539,7 +540,9 @@ class WaymoEnv():
         obs, obs_dict = self._compute_obs(next_state)
         is_done = np.asarray(jax.device_get(next_state.is_done))
         is_done = is_done.reshape(-1)
-        
+
+        DebugVisualisation().plot_map(obs_dict['roadgraph_obs'], obs_dict['route_segments'])
+
         reference_lines = get_reference_line(next_state)
         # reference_lines = None
         done = np.repeat(is_done, self.batch_dims[-1]).astype(bool)

@@ -61,9 +61,9 @@ class BaseSimulator():
                 break
 
 
-    def render(self, vis, model_name):
+    def render(self, vis, predictions, model_name):
         def save_image():
-            img = plot_seq2image(state=self.env.states[-1],batch_idx=j)
+            img = plot_seq2image(state=self.env.states[-1], predictions=predictions, batch_idx=j)
             img.savefig(name+'.pdf',dpi=300,format='pdf')
             plt.close(img)
             print('Saved Image: ', name)
@@ -82,7 +82,7 @@ class BaseSimulator():
                 verbose=False
             )
             for state in tqdm(self.env.states):
-                imgs.append(plot_image(state = state,batch_idx=j,viz_config=vis_config))
+                imgs.append(plot_image(state = state, predictions=predictions, batch_idx=j,viz_config=vis_config))
                 mediapy.write_video(name+'.mp4',imgs , fps=10)
             print('Saved Video: ', name)
 
