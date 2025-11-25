@@ -31,9 +31,10 @@ class LTDSimulator(BaseSimulator):
                 # plt.close()
 
                 # import pdb; pdb.set_trace()
-                obs = obs.reshape(self.env.num_envs,-1,7) #(B, N, 7)
-                obs_depth,obs_dim = obs.shape[1],obs.shape[-1]
-                states = (obs).reshape(self.env.num_envs,-1,obs_depth,obs_dim)
+#                 obs = obs.reshape(self.env.num_envs,-1,7) #(B, N, 7)
+#                 obs_depth,obs_dim = obs.shape[1],obs.shape[-1]
+#                 states = (obs).reshape(self.env.num_envs,-1,obs_depth,obs_dim)
+                states = [obs]
                 target_return = torch.tensor(ep_return, device=self.device, dtype=torch.float32).reshape(
                     self.env.num_envs, -1, 1
                 )
@@ -60,9 +61,12 @@ class LTDSimulator(BaseSimulator):
                         axis=1,
                     ) #(B, 2, 1)
                     with torch.no_grad():
+                        for k, v in states[-1].items():
+                            states[-1][k] = torch.tensor(v, device=self.device)
                         action = self.model.get_predictions(
-                            torch.tensor(states,device =self.device),
-                            torch.tensor(actions,device =self.device),
+#                             torch.tensor(states, device =self.device),
+                            states[-1],
+                            torch.tensor(actions, device =self.device),
                             reference_lines,
                             timesteps.to(dtype=torch.long),
                             num_envs=self.env.num_envs
@@ -86,9 +90,11 @@ class LTDSimulator(BaseSimulator):
 
                     actions = np.concatenate([actions,action[:,np.newaxis,...]],axis=1)
                     # actions[:, -1] = action
-                    obs = obs.reshape(self.env.num_envs,-1,7)
-                    state = (obs.reshape(self.env.num_envs,-1,obs_depth,obs_dim))
-                    states = np.concatenate([states,state],axis=1)
+#                     obs = obs.reshape(self.env.num_envs,-1,7)
+#                     state = (obs.reshape(self.env.num_envs,-1,obs_depth,obs_dim))
+                    state = obs
+#                     states = np.concatenate([states,state],axis=1)
+                    states.append(state)
                     reward = rew.reshape(self.env.num_envs,1)
                     rewards[:,-1] = reward
 

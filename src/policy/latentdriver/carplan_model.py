@@ -14,6 +14,12 @@ import math
 from pytorch_lightning.utilities import rank_zero_info
 from .modules.planning_decoder_deepseek_v2 import PlanningDecoder as deepseek_decoder
 from .modules.planning_decoder_origin import PlanningDecoder_origin
+from .layers.fourier_embedding import FourierEmbedding
+from .layers.transformer import TransformerEncoderLayer
+from .modules.agent_encoder import AgentEncoder
+from .modules.agent_predictor import AgentPredictor, DistPredictor
+from .modules.map_encoder import MapEncoder
+from .modules.static_objects_encoder import StaticObjectsEncoder
 
 from .layers.mlp_layer import MLPLayer
 
@@ -180,7 +186,7 @@ class CarPLAN(pl.LightningModule):
         state_channel=6,
         polygon_channel=6,
         history_channel=9,
-        history_steps=21,
+        history_steps=10,
         future_steps=80,
         encoder_depth=4,
         decoder_depth=4,
@@ -260,6 +266,45 @@ class CarPLAN(pl.LightningModule):
         # self.mpad_blocks = nn.ModuleList([MPA_blocks(hidden_size=hidden_size, num_cross_attention_heads=num_cross_attention_heads) for _ in range(num_of_decoder)])
 
         #         self.imagine_query = None
+        self.history_steps = history_steps
+
+        self.pos_emb = FourierEmbedding(3, dim, 64)
+
+        self.agent_encoder = AgentEncoder(
+            state_channel=state_channel,
+            history_channel=history_channel,
+            dim=dim,
+            hist_steps=history_steps,
+            drop_path=drop_path,
+            use_ego_history=use_ego_history,
+            state_attn_encoder=state_attn_encoder,
+            state_dropout=state_dropout,
+        )
+
+        self.distance_encoder = AgentEncoder(
+            state_channel=state_channel,
+            history_channel=history_channel,
+            dim=dim,
+            hist_steps=history_steps,
+            drop_path=drop_path,
+            use_ego_history=use_ego_history,
+            state_attn_encoder=state_attn_encoder,
+            state_dropout=state_dropout,
+        )
+
+        self.map_encoder = MapEncoder(
+            dim=dim,
+            polygon_channel=polygon_channel,
+            use_lane_boundary=True,
+        )
+
+        self.static_objects_encoder = StaticObjectsEncoder(dim=dim)
+
+        self.encoder_blocks = nn.ModuleList(
+            TransformerEncoderLayer(dim=dim, num_heads=num_heads, drop_path=dp)
+            for dp in [x.item() for x in torch.linspace(0, drop_path, encoder_depth)]
+        )
+        self.norm = nn.LayerNorm(dim)
 
         if is_carplan:
             self.planning_decoder = deepseek_decoder(
@@ -386,52 +431,90 @@ class CarPLAN(pl.LightningModule):
         #     "valid_mask": valid_mask,
         #     "future_projection": future_projection,
         # }
-        batch_size, seq_length, state_elements, state_dims = ss.shape[0], ss.shape[1], ss.shape[2], ss.shape[3]
-        flattened_states = ss.reshape(batch_size * seq_length, state_elements, state_dims)
-        bert_embeddings = self._encode_with_bert(flattened_states)
-        bert_embeddings = bert_embeddings.reshape(batch_size, seq_length, -1, self.bert.hidden_size)
+#         batch_size, seq_length, state_elements, state_dims = ss.shape[0], ss.shape[1], ss.shape[2], ss.shape[3]
+#         flattened_states = ss.reshape(batch_size * seq_length, state_elements, state_dims)
+#         bert_embeddings = self._encode_with_bert(flattened_states)
+#         bert_embeddings = bert_embeddings.reshape(batch_size, seq_length, -1, self.bert.hidden_size)
+# 
+#         actions_layers = []
+#         cur_latent_token = bert_embeddings[:,:,0:1,:]
+#         B,T,_,_ = bert_embeddings.shape
+#         # query_pe = self.query_pe(None).repeat(B*T,1,1).permute(1,0,2)
+#         # query_content = torch.zeros_like(query_pe)
+#         # action_dis = None
+#         # fut_latent_dis = None
+#         latent_dist = None
+#         rep_dist = None
+# 
+#         current_bert_embeddings = bert_embeddings[:, 1, 1:]
+# 
+#         input_batch_type = flattened_states[..., 0]
+# 
+#         car_mask = (input_batch_type == 2).unsqueeze(-1)
+#         road_graph_mask = (input_batch_type == 3).unsqueeze(-1)
+#         route_mask = (input_batch_type == 1).unsqueeze(-1)
+#         sdc_mask = (input_batch_type == 4).unsqueeze(-1)
+#         # current_bert_padding_mask = (~torch.logical_or(torch.logical_or(torch.logical_or(route_mask, car_mask), road_graph_mask), sdc_mask)).squeeze(-1).reshape(batch_size, T, -1)[:, 1]
+#         current_bert_padding_mask = (~torch.logical_or(torch.logical_or(route_mask, car_mask), road_graph_mask)).squeeze(-1).reshape(batch_size, T, -1)[:, 1]
+# 
+#         agent_embeddings_for_prediction = current_bert_embeddings[:, 20:148] + bert_embeddings[:, 1, 0:1]
+#         loc = self.loc_predictor(agent_embeddings_for_prediction).view(B, 128, 80, 2)
+#         yaw = self.yaw_predictor(agent_embeddings_for_prediction).view(B, 128, 80, 2)
+#         vel = self.vel_predictor(agent_embeddings_for_prediction).view(B, 128, 80, 2)
+#         prediction = torch.cat([loc, yaw, vel], dim=-1)
 
-        actions_layers = []
-        cur_latent_token = bert_embeddings[:,:,0:1,:]
-        B,T,_,_ = bert_embeddings.shape
-        # query_pe = self.query_pe(None).repeat(B*T,1,1).permute(1,0,2)
-        # query_content = torch.zeros_like(query_pe)
-        # action_dis = None
-        # fut_latent_dis = None
-        latent_dist = None
-        rep_dist = None
+        data = self.ss_to_datadict(ss)
 
-        current_bert_embeddings = bert_embeddings[:, 1, 1:]
+        agent_pos = data["agent"]["position"][:, :, self.history_steps - 1]
+        agent_heading = data["agent"]["heading"][:, :, self.history_steps - 1]
+        agent_mask = data["agent"]["valid_mask"][:, :, : self.history_steps]
 
-        input_batch_type = flattened_states[..., 0]
+        bs, A = agent_pos.shape[0:2]
 
-        car_mask = (input_batch_type == 2).unsqueeze(-1)
-        road_graph_mask = (input_batch_type == 3).unsqueeze(-1)
-        route_mask = (input_batch_type == 1).unsqueeze(-1)
-        sdc_mask = (input_batch_type == 4).unsqueeze(-1)
-        # current_bert_padding_mask = (~torch.logical_or(torch.logical_or(torch.logical_or(route_mask, car_mask), road_graph_mask), sdc_mask)).squeeze(-1).reshape(batch_size, T, -1)[:, 1]
-        current_bert_padding_mask = (~torch.logical_or(torch.logical_or(route_mask, car_mask), road_graph_mask)).squeeze(-1).reshape(batch_size, T, -1)[:, 1]
+#         x_polygon = self.map_encoder(data)
+#         x_static, static_pos, static_key_padding = self.static_objects_encoder(data)
+# 
+#         M_shape, S_shape = x_polygon.shape[1], x_static.shape[1]
+#         position = torch.cat([agent_pos, polygon_center[..., :2]], dim=1) #torch.Size([B, N+1+M, 2])
+#         angle = torch.cat([agent_heading, polygon_center[..., 2]], dim=1) #torch.Size([B, N+1+M])
+#         angle = (angle + math.pi) % (2 * math.pi) - math.pi
+#         pos = torch.cat([position, angle.unsqueeze(-1)], dim=-1) #torch.Size([B, N+1+M, 3])
 
-        agent_embeddings_for_prediction = current_bert_embeddings[:, 20:148] + bert_embeddings[:, 1, 0:1]
-        loc = self.loc_predictor(agent_embeddings_for_prediction).view(B, 128, 80, 2)
-        yaw = self.yaw_predictor(agent_embeddings_for_prediction).view(B, 128, 80, 2)
-        vel = self.vel_predictor(agent_embeddings_for_prediction).view(B, 128, 80, 2)
-        prediction = torch.cat([loc, yaw, vel], dim=-1)
+
+        angle = agent_heading
+        angle = (angle + math.pi) % (2 * math.pi) - math.pi
+        pos = torch.cat([agent_pos, angle.unsqueeze(-1)], dim=-1) #torch.Size([B, N+1+M, 3])
+
+        x_agent = self.agent_encoder(data)
+
+        agent_key_padding = ~(agent_mask.any(-1))
+#         polygon_key_padding = ~(polygon_mask.any(-1))
+#         key_padding_mask = torch.cat([agent_key_padding, polygon_key_padding], dim=-1)
+
+        key_padding_mask = agent_key_padding
+
+        x = x_agent
 
         ref_line_available = reference_lines["position"].shape[1] > 0
         R, M = reference_lines["position"].shape[1], 12
 
         if ref_line_available:
             trajectory, probability, pred_scenario_type, q, tgt_route, gates, load, gates_dict, dist_predictions, scores_list = self.planning_decoder(
-                reference_lines, {"enc_emb": current_bert_embeddings, "enc_key_padding_mask": current_bert_padding_mask, "enc_pos": None, "x_scene_encoder": None}
+                reference_lines, {"enc_emb": x, "enc_key_padding_mask": key_padding_mask, "enc_pos": pos, "x_scene_encoder": None}
             )
         else:
             trajectory, probability, pred_scenario_type, q, tgt_route, gates, load, gates_dict,scores_list = None, None, None, None, None, None, None, None, None
 
         # if self.ref_free_traj:
-        ref_free_traj = self.ref_free_decoder(bert_embeddings[:, 1, 0]).reshape(
-            batch_size, 80, 4
+        ref_free_traj = self.ref_free_decoder(x[:, 1, :]).reshape(
+            bs, 80, 4
         )
+
+        agent_embeddings_for_prediction = x + x[:, 0:1, :]
+        loc = self.loc_predictor(agent_embeddings_for_prediction).view(bs, 128, 80, 2)
+        yaw = self.yaw_predictor(agent_embeddings_for_prediction).view(bs, 128, 80, 2)
+        vel = self.vel_predictor(agent_embeddings_for_prediction).view(bs, 128, 80, 2)
+        prediction = torch.cat([loc, yaw, vel], dim=-1)
 
         out = {
             "trajectory": trajectory,
@@ -441,6 +524,9 @@ class CarPLAN(pl.LightningModule):
             "scores_list": scores_list,
             "ref_free_trajectory": ref_free_traj,
         }
+
+        latent_dist = None
+        rep_dist = None
 
         if not self.training:
             ref_free_traj_angle = torch.arctan2(
@@ -475,89 +561,95 @@ class CarPLAN(pl.LightningModule):
 #         return out, best_trajectory,latent_dist, rep_dist
         return out, output_ref_free_trajectory,latent_dist, rep_dist
 
+    def ss_to_datadict(self, ss):
+        if not isinstance(ss, dict):
+            raise TypeError("ss_to_datadict expects a dict with separated attributes (his_veh_trajs, ...).")
+
+        def _to_torch(x):
+            return x if torch.is_tensor(x) else torch.tensor(x, device=self.device)
+
+        his = _to_torch(ss["his_veh_trajs"])
+        # Flatten leading device/batch axes into shape (envs, agents, T, feat)
+        if his.dim() == 5:
+            his = his.reshape(-1, his.shape[2], his.shape[3], his.shape[4])
+
+        current_state_tmp = _to_torch(ss["vehicle_segments"])
+        # Flatten leading device/batch axes; keep agent/time/feat structure if present.
+        if current_state_tmp.dim() == 5:
+            # (num_devices, batch, agents, T, feat) -> (envs, agents, T, feat)
+            current_state_tmp = current_state_tmp.reshape(-1, current_state_tmp.shape[2], current_state_tmp.shape[3], current_state_tmp.shape[4])
+        elif current_state_tmp.dim() == 4:
+            # Could be (envs, agents, T, feat) or (num_devices, batch, agents, feat)
+            # Heuristic: if last dim is feature size (< time length), and third dim matches his time len, treat third dim as time.
+            if his.dim() == 4 and current_state_tmp.shape[2] == his.shape[2]:
+                pass  # already (envs, agents, T, feat)
+            else:
+                current_state_tmp = current_state_tmp.reshape(-1, current_state_tmp.shape[2], current_state_tmp.shape[3])
+        elif current_state_tmp.dim() == 3:
+            # Assume (envs, agents, feat)
+            pass
+        elif current_state_tmp.dim() == 2:
+            current_state_tmp = current_state_tmp.unsqueeze(1)  # (envs, 1, feat)
+
+        # If time axis exists, take the latest timestep.
+        if current_state_tmp.dim() == 4:
+            current_state_tmp = current_state_tmp[..., -1, :]  # (envs, agents, feat)
+
+        ego_state = current_state_tmp[:, 0, :]  # assume ego is agent index 0
+        xy = ego_state[..., 1:3]
+        heading = ego_state[..., 5:6]
+        v_scarlar = torch.sqrt(ego_state[..., 6:7] ** 2 + ego_state[..., 7:8] ** 2)
+        a_scarlar = torch.sqrt(ego_state[..., 8:9] ** 2 + ego_state[..., 9:10] ** 2)
+        steering_angle = torch.abs(heading - his[:, 0, -1, 5:6])
+        mask = ego_state[..., -1:].to(ego_state.dtype)
+        current_state = torch.cat(
+            [xy, heading, v_scarlar, a_scarlar, steering_angle, mask],
+            dim=-1,
+        )
+
+        # his shape now: (num_envs, num_agents, T_hist, feat)
+        agent_pos = his[..., 1:3]                     # (B, A, T, 2)
+        agent_shape = his[..., 3:5]                   # (B, A, T, 2) -> width, length
+        agent_heading = torch.deg2rad(his[..., 5])    # yaw(deg) -> rad
+        agent_vel = his[..., 6:8]                     # vx, vy
+        agent_acc = his[..., 8:10]                    # ax, ay
+        agent_valid = (his[..., 10] == 1).bool()      # (B, A, T)
+        agent_category = his[..., 0, 0]               # type id (2=vehicle, 4=SDC set upstream)
+
+        data_dict = {
+            "current_state": current_state,
+            "agent": {
+                "position": agent_pos,
+                "heading": agent_heading,
+                "velocity": agent_vel,
+                "acceleration": agent_acc,
+                "shape": agent_shape,
+                "category": agent_category,
+                "valid_mask": agent_valid,
+            } #,
+#             "map": {
+#                 # "polygons": map_polygons,
+#                 # "poly_types": map_poly_types,
+#                 # "poly_valid_mask": map_poly_valid_mask,
+#             }
+        }
+
+        return data_dict
+
     def get_predictions(
         self, states, actions, reference_lines, timesteps, num_envs=1, **kwargs
     ):
-        states_elements = states.shape[2]
-
-        # max_length is the context length (should be input length of the subsequence)
-        # eval_context_length is the how long you want to use the history for your prediction
-        if self.max_length is not None:
-            states = states[:, -self.eval_context_length :]
-            actions = actions[:, -self.eval_context_length :]
-            timesteps = timesteps[:, -self.eval_context_length :]
-
-            ordering = torch.tile(
-                torch.arange(timesteps.shape[1], device=states.device),
-                (num_envs, 1),
-            )
-            # pad all tokens to sequence length
-            padding_mask = torch.cat(
-                [
-                    torch.zeros(self.max_length - states.shape[1]),
-                    torch.ones(states.shape[1]),
-                ]
-            )
-            padding_mask = padding_mask.to(
-                dtype=torch.long, device=states.device
-            ).reshape(1, -1)
-            padding_mask = padding_mask.repeat((num_envs, 1)) #(4, 2)
-
-            states = torch.cat(
-                [
-                    torch.zeros(
-                        (
-                            states.shape[0],
-                            self.max_length - states.shape[1],
-                            states_elements,
-                            states.shape[-1],
-                        ),
-                        device=states.device,
-                    ),
-                    states,
-                ],
-                dim=1,
-            ).to(dtype=torch.float32) #(B, 2, N, 7) #과거 정보가 없으면 0으로 처리
-            actions = torch.cat(
-                [
-                    torch.zeros(
-                        (
-                            actions.shape[0],
-                            self.max_length - actions.shape[1],
-                            self.act_dim,
-                        ),
-                        device=actions.device,
-                    ),
-                    actions,
-                ],
-                dim=1,
-            ).to(dtype=torch.float32)
-
-            timesteps = torch.cat(
-                [
-                    torch.zeros(
-                        (timesteps.shape[0], self.max_length - timesteps.shape[1]),
-                        device=timesteps.device,
-                    ),
-                    timesteps,
-                ],
-                dim=1,
-            ).to(dtype=torch.long)
-
-            ordering = torch.cat(
-                [
-                    torch.zeros(
-                        (ordering.shape[0], self.max_length - ordering.shape[1]),
-                        device=ordering.device,
-                    ),
-                    ordering,
-                ],
-                dim=1,
-            ).to(dtype=torch.long)
+        # states는 dict 형태의 관측(분리된 attribute). 텐서가 아니면 텐서로 변환.
+        if isinstance(states, dict):
+            states = {
+                k: (v if torch.is_tensor(v) else torch.tensor(v, device=self.device))
+                for k, v in states.items()
+            }
         else:
-            padding_mask = None
+            raise TypeError("get_predictions expects states as a dict of tensors from preprocess_data_dist_jnp.")
 
-        # import pdb; pdb.set_trace()
+        padding_mask = None
+
         for bs in range(num_envs):
             for ref_idx, ref_lines in enumerate(reference_lines["position"][bs]):
                 ref_valid_mask = reference_lines["valid_mask"][bs, ref_idx]
@@ -575,10 +667,6 @@ class CarPLAN(pl.LightningModule):
             timesteps,
             padding_mask=padding_mask,
         )
-        B, T = states.shape[0], states.shape[1]
-        # if self.function in ['enc-LWM-MPP','enc-MPP']:
-        #     _, _, _, action_ = unpack_action(action[-1].reshape(B*T,-1,7), B, T)
-        #     action = action_.reshape(B, T, -1)
         return action
 
     def get_planning_loss(self, future_projection, valid_mask, trajectory, probability, target_valid_mask, target, bs):
@@ -753,9 +841,9 @@ class CarPLAN(pl.LightningModule):
         elif self.sched_conf.type == 'LinearLR':
             self.sched_conf.update(dict(total_iters=all_steps))
         elif self.sched_conf.type == 'OneCycleLR':
-            self.sched_conf.update(dict(total_steps=all_steps)) 
+            self.sched_conf.update(dict(total_steps=all_steps))
         elif self.sched_conf.type == 'ConstantLR':
-            self.sched_conf.update(dict(total_iters=all_steps)) 
+            self.sched_conf.update(dict(total_iters=all_steps))
 
         scheduler = build_scheduler(self.sched_conf,optimizer)
         scheduler = {

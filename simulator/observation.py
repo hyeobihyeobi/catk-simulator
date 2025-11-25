@@ -55,15 +55,17 @@ def preprocess_data_dist_jnp(data: dict[jnp.array],
     type_route_seg = np.array(data['route_segments'])
     type_vehicles = np.array(data['vehicle_segments'])
     type_roadobs = np.array(data['roadgraph_obs'])
+    his_veh_trajs = np.array(data['his_veh_trajs'])
     type_roadobs = drop_zero_on_roadobs(type_roadobs,max_roadgraph_segments)
     # update the data
     data['roadgraph_obs'] = type_roadobs
     data['route_segments'] = type_route_seg
     data['vehicle_segments'] = type_vehicles
-    obs = np.concatenate([type_route_seg, type_vehicles, type_roadobs], axis=2,dtype=np.float32)
-    data['obs'] = obs
+    data['his_veh_trajs'] = his_veh_trajs
+#     obs = np.concatenate([type_route_seg, type_vehicles, type_roadobs], axis=2,dtype=np.float32)
+#     data['obs'] = obs
     # obs [num_devices, collected bs, numbers of types, 7]
-    return obs
+    return data
 def get_padding_mask(array):
     return array.sum(axis=-1) == 0
 def get_vehicle_obs(sdc_obs, timestep):
@@ -153,7 +155,7 @@ def get_obs_from_routeandmap_saved(
     # The num_obj is 1 because the it is computing the observation for SDC, and
     # there is only 1 SDC per scene.
     num_obj = 1
-    time_step = 10
+    time_step = 11
     global_obs = observation.global_observation_from_state(
         state, time_step, num_obj=num_obj
     )

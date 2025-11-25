@@ -510,9 +510,9 @@ class WaymoEnv():
         self.metric.reset(self.intention_label)
         obs, obs_dict = self._compute_obs(cur_state)
 
-#         reference_lines = get_reference_line(cur_state)
+        reference_lines = get_reference_line(cur_state)
         target = None
-        reference_lines, target = None, None
+#         reference_lines, target = None, None
         return obs, obs_dict, reference_lines, target
 
     def step(self,action=None, show_global=False):
@@ -544,8 +544,8 @@ class WaymoEnv():
 
 #         DebugVisualisation().plot_map(obs_dict['roadgraph_obs'], obs_dict['route_segments'])
 
-#         reference_lines = get_reference_line(next_state)
-        reference_lines = None
+        reference_lines = get_reference_line(next_state)
+#         reference_lines = None
         done = np.repeat(is_done, self.batch_dims[-1]).astype(bool)
         self.states.append(next_state)
         self.metric.update(rewards,rew)

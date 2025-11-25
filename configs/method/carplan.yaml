@@ -1,6 +1,7 @@
 # common
 model_name: carplan
-ckpt_path: 'checkpoints/pluto.ckpt'
+ckpt_path: null
+# ckpt_path: 'checkpoints/pluto.ckpt'
 # action space
 action_space:
     dynamic_type: waypoint
@@ -29,7 +30,7 @@ dim: 128
 state_channel: 6
 polygon_channel: 6
 history_channel: 9
-history_steps: 21
+history_steps: 10
 future_steps: 80
 encoder_depth: 4
 decoder_depth: 4
@@ -42,7 +43,7 @@ use_ego_history: false
 state_attn_encoder: true
 use_hidden_proj: True
 ref_free_traj: True
-# spa args 
+# spa args
 use_collision_loss: True
 cat_x: False
 

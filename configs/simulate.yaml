@@ -1,4 +1,4 @@
-vis: 'video' # whether to visualize the simulation, can be [False, 'image', 'video'].
+vis: False # whether to visualize the simulation, can be [False, 'image', 'video'].
 
 # The setting below is not used in behavior cloning
 rewards:
@@ -13,7 +13,8 @@ rewards:
 # simulator related config
 waymax_conf:
   path: ${WOMD_VAL_PATH} # path to WOMD
-  max_num_objects: 128
+#   max_num_objects: 128
+  max_num_objects: 43
   max_num_rg_points: 30000
   num_shards: 4
   repeat: 1

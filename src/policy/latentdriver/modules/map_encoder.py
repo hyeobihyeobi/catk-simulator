@@ -6,7 +6,7 @@ from ..layers.fourier_embedding import FourierEmbedding
 from ..layers.embedding import NATSequenceEncoder
 
 
-import math                
+import math
 
 class MapDispEncoder(nn.Module):
     def __init__(
@@ -21,14 +21,14 @@ class MapDispEncoder(nn.Module):
         self.dim = dim
         self.use_lane_boundary = use_lane_boundary
         self.hist_steps = hist_steps
-        
+
         self.polygon_channel = (
             polygon_channel + 4 if use_lane_boundary else polygon_channel
         )
 
         self.polygon_encoder = PointsEncoder(self.polygon_channel, dim)
         self.speed_limit_emb = FourierEmbedding(1, dim, 64)
-        
+
         self.history_encoder = NATSequenceEncoder(
             in_chans=4, embed_dim=dim // 4, drop_path_rate=0.2
         )
@@ -39,7 +39,7 @@ class MapDispEncoder(nn.Module):
         self.unknown_speed_emb = nn.Embedding(1, dim)
 
     def forward(self, data, cur_temp_cons = 0, AV_pos=None, AV_cur_heading=None, AV_cur_vel=None) -> torch.Tensor:
-        
+
         polygon_center = data["map"]["polygon_center"].clone()
         polygon_type = data["map"]["polygon_type"].long()
         polygon_on_route = data["map"]["polygon_on_route"].long()
@@ -50,10 +50,10 @@ class MapDispEncoder(nn.Module):
         point_vector = data["map"]["point_vector"].clone()
         point_orientation = data["map"]["point_orientation"].clone()
         valid_mask = data["map"]["valid_mask"]
-        
+
         AV_position = data["agent"]["position"][:, :1, :self.hist_steps]
         AV_heading = data["agent"]["heading"][:, :1, :self.hist_steps]
-        
+
         # Time Step별
         point_position = polygon_center[..., :2].unsqueeze(-2).repeat(1, 1, self.hist_steps, 1) - AV_position # 아 ABS 씌워야 하나.. 모르겠네
         point_orientation = polygon_center[..., 2].unsqueeze(-1).repeat(1, 1, self.hist_steps) - AV_heading
@@ -73,14 +73,14 @@ class MapDispEncoder(nn.Module):
         )
 
         bs, M, T, C = polygon_feature.shape
-        
+
         valid_mask = valid_mask.any(-1)
         polygon_feature_tmp = self.history_encoder( #torch.Size([B*Valid Agent, 128])
             polygon_feature[valid_mask].permute(0, 2, 1).contiguous() #torch.Size([Valid, state, History_step -1])
         )
         x_polygon_ = torch.zeros(bs, M, self.dim, device=point_position.device)
         x_polygon_[valid_mask] = polygon_feature_tmp
-        x_polygon = x_polygon_ #.view(bs, M, P, self.dim) #torch.Size([B, N+1, 128])        
+        x_polygon = x_polygon_ #.view(bs, M, P, self.dim) #torch.Size([B, N+1, 128])
 
         x_type = self.type_emb(polygon_type)
         x_on_route = self.on_route_emb(polygon_on_route)
@@ -94,7 +94,7 @@ class MapDispEncoder(nn.Module):
         x_polygon = x_polygon + x_type + x_on_route + x_tl_status + x_speed_limit
 
         return x_polygon
-    
+
 class MapEncoder(nn.Module):
     def __init__(
         self,
@@ -119,7 +119,7 @@ class MapEncoder(nn.Module):
         self.unknown_speed_emb = nn.Embedding(1, dim)
 
     def forward(self, data, cur_temp_cons = 0, AV_pos=None, AV_cur_heading=None, AV_cur_vel=None) -> torch.Tensor:
-        
+
         polygon_center = data["map"]["polygon_center"].clone()
         polygon_type = data["map"]["polygon_type"].long()
         polygon_on_route = data["map"]["polygon_on_route"].long()
@@ -135,10 +135,10 @@ class MapEncoder(nn.Module):
             cos_h = torch.cos(AV_cur_heading)[:, None, None]
             sin_h = torch.sin(AV_cur_heading)[:, None, None]
             rotate_mat = torch.cat([
-                torch.cat([cos_h, -sin_h], dim=-1),  
-                torch.cat([sin_h, cos_h], dim=-1)  
+                torch.cat([cos_h, -sin_h], dim=-1),
+                torch.cat([sin_h, cos_h], dim=-1)
             ], dim=-2)
-            
+
             point_position = torch.matmul(point_position - AV_pos[:, None, None, None], rotate_mat[:, None, None])
             point_vector = torch.matmul(point_vector, rotate_mat[:, None, None])
             point_orientation -= AV_cur_heading[:, None, None, None]
@@ -225,7 +225,7 @@ class MapEncoder_TemporalConsis_Batch(nn.Module):
         self.unknown_speed_emb = nn.Embedding(1, dim)
 
     def forward(self, data, AV_pos=None) -> torch.Tensor:
-        
+
         polygon_center = data["map"]["polygon_center"]
         polygon_type = data["map"]["polygon_type"].long()
         polygon_on_route = data["map"]["polygon_on_route"].long()
@@ -248,10 +248,10 @@ class MapEncoder_TemporalConsis_Batch(nn.Module):
             point_vector = data["map"]["point_vector"][:,None].repeat_interleave(AV_pos.shape[1], dim=1) 
             point_orientation = data["map"]["point_orientation"][:,None].repeat_interleave(AV_pos.shape[1], dim=1) 
             valid_mask = data["map"]["valid_mask"][:,None].repeat_interleave(AV_pos.shape[1], dim=1) 
-            
+
             polygon_center[...,:2] = polygon_center[...,:2] - AV_pos[:,:,None]
             point_position = point_position - AV_pos[:,:,None,None,None]
-            
+
             polygon_center = polygon_center.flatten(0,1)
             polygon_type = polygon_type.flatten(0,1)
             polygon_on_route = polygon_on_route.flatten(0,1)
@@ -262,7 +262,7 @@ class MapEncoder_TemporalConsis_Batch(nn.Module):
             point_vector = point_vector.flatten(0,1)
             point_orientation = point_orientation.flatten(0,1)
             valid_mask = valid_mask.flatten(0,1)
-            
+
         else:
             polygon_center = data["map"]["polygon_center"]
             polygon_type = data["map"]["polygon_type"].long()
@@ -416,7 +416,7 @@ class MapEncoder_w_inverse_traffic(nn.Module):
         x_speed_limit[polygon_has_speed_limit] = self.speed_limit_emb(
             polygon_speed_limit[polygon_has_speed_limit].unsqueeze(-1)
         )
-        
+
         # # 대체 방법: 텐서 연산으로 결과 생성
         # updated_x_speed_limit = torch.where(
         #     ~polygon_has_speed_limit.unsqueeze(-1),  # 마스크 확장
@@ -425,13 +425,13 @@ class MapEncoder_w_inverse_traffic(nn.Module):
         # )
         # x_speed_limit = updated_x_speed_limit
 
-        
+
         # x_speed_limit[~polygon_has_speed_limit] = self.unknown_speed_emb.weight
         x_polygon_inverse_traffic = x_polygon.clone()
         x_polygon += x_type + x_on_route + x_tl_status + x_speed_limit
         with torch.no_grad():
             x_polygon_inverse_traffic += x_type + x_on_route + x_inverse_tl_status + x_speed_limit
-        
+
 
 
         return x_polygon, x_polygon_inverse_traffic

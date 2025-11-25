@@ -11,7 +11,8 @@ class NATSequenceEncoder(nn.Module):
         in_chans=3,
         embed_dim=32,
         mlp_ratio=3,
-        kernel_size=[3, 3, 5],
+#         kernel_size=[3, 3, 5],
+        kernel_size=[3, 3, 3],
         depths=[2, 2, 2],
         num_heads=[2, 4, 8],
         out_indices=[0, 1, 2],
@@ -149,7 +150,8 @@ class NATLayer(nn.Module):
         self,
         dim,
         num_heads,
-        kernel_size=7,
+#         kernel_size=7,
+        kernel_size=3,
         dilation=None,
         mlp_ratio=4.0,
         qkv_bias=True,
@@ -173,7 +175,7 @@ class NATLayer(nn.Module):
             num_heads=num_heads,
             qkv_bias=qkv_bias,
             qk_scale=qk_scale,
-            attn_drop=attn_drop,
+#             attn_drop=attn_drop,
             proj_drop=drop,
         )
 
