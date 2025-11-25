@@ -1,0 +1,9 @@
+{
+  "name": "catk-simulator Project",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-20-bookworm",
+  "forwardPorts": [
+    3000
+  ]
+//   "postCreateCommand": "npm install",
+//   "postStartCommand": "npm run dev"
+}
