@@ -38,10 +38,11 @@ metric_conf:
   intention_label_path: ${INTENTION_VAL_PATH}
 
 data_conf:
-  max_map_segments: 1000 # max number of map segments in a scenario. For map collection only
-  max_roadgraph_segments: 40 # max number of roadgraph segments per-frame. Not used here, checkout usage in 'simulator/observation.py'
+  max_map_segments: 10000 # max number of map segments in a scenario. For map collection only
+  max_num_tl_points: 1000
+  max_roadgraph_segments: 10000 # max number of roadgraph segments per-frame. Not used here, checkout usage in 'simulator/observation.py'
   max_route_segments: 20 # max number of route segments per-frame. For map collection only
-  FOV: [80, 20] # for width and height, Not used here checkout usage in 'simulator/observation.py'
+  FOV: [50, 50] # for width and height, Not used here checkout usage in 'simulator/observation.py'
   path_to_processed_map_route: ${PRE_PROCESS_VAL_PATH} # path to preprocessed map and route for val or train set
 
 defaults:

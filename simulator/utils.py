@@ -9,6 +9,8 @@ import os
 _MISSING_ROUTE_IDS = set()
 _MISSING_LABEL_IDS = set()
 _ROUTE_FALLBACK_TEMPLATE = np.zeros((20, 6), dtype=np.float64)
+_TL_FALLBACK_TEMPLATE = np.zeros((0, 6), dtype=np.float64)
+_ON_ROUTE_FALLBACK_TEMPLATE = np.zeros((20, 1), dtype=np.bool_)
 
 def get_cache_polylines_baseline(cur_state:datatypes.SimulatorState,
                                 path_to_map:str,
@@ -63,6 +65,76 @@ def get_cache_polylines_baseline(cur_state:datatypes.SimulatorState,
     road_np = np.stack(whole_map_by_device_id, axis=0)
     route_np = np.stack(whole_route_by_device_id, axis=0)
     return road_np, route_np, intention_label
+
+
+def get_cache_tl_status_baseline(cur_state: datatypes.SimulatorState,
+                                path_to_tl: str):
+    cur_id = cur_state._scenario_id.reshape(cur_state.shape)
+    tl_by_device = []
+    dev_dim = cur_id.shape[0] if hasattr(cur_id, 'shape') else 1
+    has_batch = (hasattr(cur_id, 'ndim') and cur_id.ndim >= 2)
+    for device_id in range(dev_dim):
+        tl_by_batch = []
+        batch_range = range(cur_id.shape[1]) if has_batch else range(1)
+        for batch_id in batch_range:
+            scenario_id = cur_id[device_id] if not has_batch else cur_id[device_id][batch_id]
+            while hasattr(scenario_id, 'shape') and getattr(scenario_id, 'ndim', 0) > 0:
+                scenario_id = scenario_id[0]
+            scenario_value = scenario_id.item() if hasattr(scenario_id, 'item') else scenario_id
+            scenario_str = str(scenario_value)
+            tl_path = os.path.join(path_to_tl, f'{scenario_str}.npy')
+            if os.path.exists(tl_path):
+                tl_array = loading_data(tl_path, mode='np')
+            else:
+                if scenario_str not in _MISSING_ROUTE_IDS:
+                    print(f'[LatentDriver] Missing cached tl_status for {scenario_str}, using zeros.')
+                    _MISSING_ROUTE_IDS.add(scenario_str)
+                tl_array = _TL_FALLBACK_TEMPLATE.copy()
+            # Remove padding rows that are all zeros.
+            tl_array = np.array(tl_array)
+            if tl_array.ndim == 1:
+                tl_array = tl_array.reshape(-1, 6)
+            valid_mask = ~(np.abs(tl_array).sum(axis=-1) == 0)
+            tl_array = tl_array[valid_mask]
+            tl_by_batch.append(tl_array)
+        # Pad within this device to the max length in the batch for stacking consistency.
+        max_len = max((arr.shape[0] for arr in tl_by_batch), default=0)
+        padded_batch = []
+        for arr in tl_by_batch:
+            if arr.shape[0] < max_len:
+                pad = np.zeros((max_len - arr.shape[0], arr.shape[1]), dtype=arr.dtype)
+                arr = np.concatenate([arr, pad], axis=0)
+            padded_batch.append(arr)
+        tl_by_device.append(np.stack(padded_batch, axis=0) if padded_batch else np.zeros((0, 0, 6)))
+    return np.stack(tl_by_device, axis=0)
+
+
+def get_cache_on_route_baseline(cur_state: datatypes.SimulatorState,
+                                path_to_map: str):
+    cur_id = cur_state._scenario_id.reshape(cur_state.shape)
+    masks_by_device = []
+    dev_dim = cur_id.shape[0] if hasattr(cur_id, 'shape') else 1
+    has_batch = (hasattr(cur_id, 'ndim') and cur_id.ndim >= 2)
+    for device_id in range(dev_dim):
+        masks_by_batch = []
+        batch_range = range(cur_id.shape[1]) if has_batch else range(1)
+        for batch_id in batch_range:
+            scenario_id = cur_id[device_id] if not has_batch else cur_id[device_id][batch_id]
+            while hasattr(scenario_id, 'shape') and getattr(scenario_id, 'ndim', 0) > 0:
+                scenario_id = scenario_id[0]
+            scenario_value = scenario_id.item() if hasattr(scenario_id, 'item') else scenario_id
+            scenario_str = str(scenario_value)
+            mask_path = os.path.join(path_to_map, f'{scenario_str}_on_route_mask.npy')
+            if os.path.exists(mask_path):
+                mask_array = loading_data(mask_path, mode='np')
+            else:
+                if scenario_str not in _MISSING_ROUTE_IDS:
+                    print(f'[LatentDriver] Missing on-route mask for {scenario_str}, using zeros.')
+                    _MISSING_ROUTE_IDS.add(scenario_str)
+                mask_array = _ON_ROUTE_FALLBACK_TEMPLATE.copy()
+            masks_by_batch.append(mask_array)
+        masks_by_device.append(np.stack(masks_by_batch, axis=0))
+    return np.stack(masks_by_device, axis=0)
 
 
 

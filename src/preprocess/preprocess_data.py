@@ -7,7 +7,7 @@ from src.utils.utils import update_waymax_config
 from waymax import dataloader
 import numpy as np
 from waymax.config import DatasetConfig
-from src.preprocess.waymax_preprocess_utils import workers, get_whole_map, get_route_global
+from src.preprocess.waymax_preprocess_utils import workers, get_whole_map, get_tl_status, get_route_global
 import multiprocessing as mp
 import time
 from contextlib import nullcontext
@@ -22,6 +22,7 @@ except ImportError:  # pragma: no cover - optional dependency
 # Constants
 MAP_DIR_NAME = 'map'
 ROUTE_DIR_NAME = 'route'
+TL_STATUS_NAME = 'tl_status'
 
 class Preprocessor(object):
     def __init__(self, config):
@@ -42,6 +43,7 @@ class Preprocessor(object):
         # Set paths
         self.path_to_map = os.path.join(self.data_conf.path_to_processed_map_route, MAP_DIR_NAME)
         self.path_to_route = os.path.join(self.data_conf.path_to_processed_map_route, ROUTE_DIR_NAME)
+        self.path_to_tl = os.path.join(self.data_conf.path_to_processed_map_route, TL_STATUS_NAME)
         self.intention_label_path = config.metric_conf.intention_label_path
 
     def _check_and_create_dirs(self):
@@ -55,11 +57,14 @@ class Preprocessor(object):
             raise ValueError(f'The map has been dumped in {self.path_to_map}, please delete the map first')
         if os.path.exists(self.path_to_route):
             raise ValueError(f'The route has been dumped in {self.path_to_route}, please delete the route first')
+        if os.path.exists(self.path_to_tl):
+            raise ValueError(f'The traffic light status has been dumped in {self.path_to_tl}, please delete it first')
         if os.path.exists(self.intention_label_path):
             raise ValueError(f'The intention label has been dumped in {self.intention_label_path}, please delete the intention label first')
 
         os.makedirs(self.path_to_map, exist_ok=True)
         os.makedirs(self.path_to_route, exist_ok=True)
+        os.makedirs(self.path_to_tl, exist_ok=True)
         os.makedirs(self.intention_label_path, exist_ok=True)
 
     def _process_scenario(self, scen):
@@ -75,7 +80,9 @@ class Preprocessor(object):
         cur_id = scen._scenario_id.reshape(-1)
 
         # Extract map data
-        road_obs, ids = get_whole_map(scen)
+        road_obs, road_ids, on_route_mask = get_whole_map(scen)
+
+        tl_status, tl_ids = get_tl_status(scen)
 
         # Extract route data
         routes, ego_car_width = get_route_global(scen)
@@ -92,9 +99,15 @@ class Preprocessor(object):
             tasks.append((
                 # Map data
                 road_obs[bs],
-                ids[bs],
+                road_ids[bs],
+                on_route_mask[bs],
                 self.data_conf.max_map_segments,
                 os.path.join(self.path_to_map, '{}'.format(cur_id[bs])),
+                # Traffic light data
+                tl_status[bs],
+                tl_ids[bs],
+                self.data_conf.max_num_tl_points,
+                os.path.join(self.path_to_tl, '{}'.format(cur_id[bs])),
                 # Route data
                 routes[bs:bs+1],
                 self.data_conf.max_route_segments,
@@ -120,29 +133,38 @@ class Preprocessor(object):
         print(f'Start dumping intention label, the intention label will be saved in {self.intention_label_path}')
 
 #         progress = tqdm(desc="Preprocessing batches", unit="batch") if tqdm else nullcontext()
-        num_shards = 1000  # training split
-        total_scenarios = num_shards * 64
-        per_batch = cfg.batch_dims[1] if len(cfg.batch_dims) > 1 else 1
-        total_batches = math.ceil(total_scenarios / per_batch)
 
-        progress = tqdm(total=total_batches, desc="Preprocessing batches", unit="batch")
+#         num_shards = 1000  # training split
+#         total_scenarios = num_shards * 64
+#         per_batch = cfg.batch_dims[1] if len(cfg.batch_dims) > 1 else 1
+#         total_batches = math.ceil(total_scenarios / per_batch)
+# 
+#         progress = tqdm(total=total_batches, desc="Preprocessing batches", unit="batch")
+# 
+#         with mp.Pool(processes=mp.cpu_count()) as pool:
+#             if tqdm:
+#                 with progress as pbar:
+#                     for batch_id, scen in enumerate(self.data_iter):
+#                         t_start = time.time()
+#                         tasks = self._process_scenario(scen)
+#                         pool.starmap(workers, tasks)
+#                         elapsed = time.time() - t_start
+#                         pbar.update(1)
+#                         pbar.set_postfix(batch_time=f"{elapsed:.2f}s")
+#             else:
+#                 for batch_id, scen in enumerate(self.data_iter):
+#                     t_start = time.time()
+#                     tasks = self._process_scenario(scen)
+#                     pool.starmap(workers, tasks)
+#                     print(f"Processed batch {batch_id}; elapsed {time.time() - t_start:.2f}s")
 
         with mp.Pool(processes=mp.cpu_count()) as pool:
-            if tqdm:
-                with progress as pbar:
-                    for batch_id, scen in enumerate(self.data_iter):
-                        t_start = time.time()
-                        tasks = self._process_scenario(scen)
-                        pool.starmap(workers, tasks)
-                        elapsed = time.time() - t_start
-                        pbar.update(1)
-                        pbar.set_postfix(batch_time=f"{elapsed:.2f}s")
-            else:
-                for batch_id, scen in enumerate(self.data_iter):
-                    t_start = time.time()
-                    tasks = self._process_scenario(scen)
-                    pool.starmap(workers, tasks)
-                    print(f"Processed batch {batch_id}; elapsed {time.time() - t_start:.2f}s")
+            for batch_id, scen in enumerate(self.data_iter):
+                t_start = time.time()
+                tasks = self._process_scenario(scen)
+                pool.starmap(workers, tasks)
+
+                print(f"Processed; current batch is: {batch_id}; Using time is: {time.time() - t_start}")
 
 @hydra.main(version_base=None, config_path="../../configs", config_name="simulate")
 def run(cfg):
@@ -158,4 +180,5 @@ def run(cfg):
     preprocessor.run()
 
 if __name__ == '__main__':
+    mp.set_start_method("spawn", force=True)
     run()

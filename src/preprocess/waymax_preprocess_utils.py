@@ -15,7 +15,8 @@ def worker_route(route,max_route_segments,ego_car_width,path):
     saving_data(route,name=path,mode='np')
 
 def worker_roadgraph(roadgraph, ids, on_route_mask, max_roadgraph_segments, path):
-    roadgraph = get_roadgraph_obs_(roadgraph, ids)
+#     roadgraph = get_roadgraph_obs_(roadgraph, ids)
+    roadgraph = np.concatenate([roadgraph, ids], axis=-1)
     # padding
     roadgraph = padding(roadgraph, max_roadgraph_segments)
     on_route_mask = pad_mask(on_route_mask, max_roadgraph_segments)
@@ -98,13 +99,14 @@ def workers(# roadgraph
     worker_route(route,max_route_segments,ego_car_width,route_path)
     intention_label_worker(sdc_xy, yaw, scenario_id, intention_lable_path)
 
-def padding(data,max_len,pad_value=0):
-    padding_ = np.ones((1,6))* pad_value
+def padding(data, max_len, pad_value=0):
+    pad_dim = data[0].shape[-1]
+    padding_ = np.ones((1, pad_dim))* pad_value
     if len(data) < max_len:
         data += [padding_ for _ in range(max_len - len(data))]
     else:
         data = data[:max_len]
-    data = np.array(data).reshape(-1,6)
+    data = np.array(data).reshape(-1, pad_dim)
     return data
 
 def pad_mask(mask, max_len):
@@ -197,8 +199,8 @@ def rdp_downsample_route(routes,ego_car_width,max_length_per_seg=10):
         # bs_routes.append(route_segments)
     return route_segments
 
-def get_roadgraph_obs_(road_observation,ids):
-    TYPES = [MapElementIds.ROAD_EDGE_BOUNDARY,MapElementIds.ROAD_EDGE_MEDIAN]
+def get_roadgraph_obs_(road_observation, ids):
+    TYPES = [MapElementIds.ROAD_EDGE_BOUNDARY, MapElementIds.ROAD_EDGE_MEDIAN]
     unique_ids = np.unique(ids)
     road_observation = np.array(road_observation)
     ids = np.array(ids)
@@ -247,7 +249,8 @@ def get_whole_map(state):
     road_observation = jnp.concatenate(
                         (state.roadgraph_points.xy.reshape(B,P,-1),
                             # state.roadgraph_points.dir_xy[valid][mask],
-                            state.roadgraph_points.dir_xy.reshape(B,P,-1),
+                            # state.roadgraph_points.dir_xy.reshape(B,P,-1),
+                            jnp.atan2(state.roadgraph_points.dir_x.reshape(B,P,-1), state.roadgraph_points.dir_y.reshape(B,P,-1)),
                             state.roadgraph_points.types.reshape(B,P,1),
                             # state.roadgraph_points.ids.reshape(-1,1)
                             ),axis=-1)
@@ -278,7 +281,7 @@ def get_whole_map(state):
         on_route_mask = jax.vmap(mask_batch)(ids, path_ids, path_on_route)
     # Apply keep mask to on_route_mask
     on_route_mask = on_route_mask * keep_mask_exp
-#     DebugVisualisation().plot_map_jax(state.roadgraph_points.xy.reshape(1,B,P,-1), ids=ids, types=state.roadgraph_points.types.reshape(B,P,1),batch_idx=0)
+#     DebugVisualisation().plot_map_jax(state.roadgraph_points.xy.reshape(1, B, P, -1), ids=ids, types=state.roadgraph_points.types.reshape(B, P, 1), batch_idx=0)
     return road_observation, ids, on_route_mask
 
 @jax.jit

@@ -113,7 +113,7 @@ class MapEncoder(nn.Module):
         self.polygon_encoder = PointsEncoder(self.polygon_channel, dim)
         self.speed_limit_emb = FourierEmbedding(1, dim, 64)
 
-        self.type_emb = nn.Embedding(3, dim)
+        self.type_emb = nn.Embedding(4, dim)
         self.on_route_emb = nn.Embedding(2, dim)
         self.traffic_light_emb = nn.Embedding(4, dim)
         self.unknown_speed_emb = nn.Embedding(1, dim)
@@ -124,8 +124,8 @@ class MapEncoder(nn.Module):
         polygon_type = data["map"]["polygon_type"].long()
         polygon_on_route = data["map"]["polygon_on_route"].long()
         polygon_tl_status = data["map"]["polygon_tl_status"].long()
-        polygon_has_speed_limit = data["map"]["polygon_has_speed_limit"]
-        polygon_speed_limit = data["map"]["polygon_speed_limit"]
+#         polygon_has_speed_limit = data["map"]["polygon_has_speed_limit"]
+#         polygon_speed_limit = data["map"]["polygon_speed_limit"]
         point_position = data["map"]["point_position"].clone()
         point_vector = data["map"]["point_vector"].clone()
         point_orientation = data["map"]["point_orientation"].clone()
@@ -189,13 +189,13 @@ class MapEncoder(nn.Module):
         x_type = self.type_emb(polygon_type)
         x_on_route = self.on_route_emb(polygon_on_route)
         x_tl_status = self.traffic_light_emb(polygon_tl_status)
-        x_speed_limit = torch.zeros(bs, M, self.dim, device=x_polygon.device)
-        x_speed_limit[polygon_has_speed_limit] = self.speed_limit_emb(
-            polygon_speed_limit[polygon_has_speed_limit].unsqueeze(-1)
-        )
-        x_speed_limit[~polygon_has_speed_limit] = self.unknown_speed_emb.weight
+#         x_speed_limit = torch.zeros(bs, M, self.dim, device=x_polygon.device)
+#         x_speed_limit[polygon_has_speed_limit] = self.speed_limit_emb(
+#             polygon_speed_limit[polygon_has_speed_limit].unsqueeze(-1)
+#         )
+#         x_speed_limit[~polygon_has_speed_limit] = self.unknown_speed_emb.weight
 
-        x_polygon = x_polygon + x_type + x_on_route + x_tl_status + x_speed_limit
+        x_polygon = x_polygon + x_type + x_on_route + x_tl_status # + x_speed_limit
 
         return x_polygon
 

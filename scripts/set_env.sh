@@ -1,7 +1,8 @@
 # set your path here
-export WAYMO_DATASET_PATH="/workspace/WOMD"
-export ROOT_PATH="/workspace/catk-simulator"
-export PRE_PROCESS_ROOT_PATH="/workspace/catk-simulator"
+export WAYMO_DATASET_PATH="/workspace"
+export ROOT_PATH="/workspace/Git/catk-simulator"
+# export PRE_PROCESS_ROOT_PATH="/workspace/Git/LatentDriver"
+export PRE_PROCESS_ROOT_PATH="/workspace/Git/catk-simulator"
 # export CHEX_NOGUARD=1
 export WOMD_VAL_PATH="${WAYMO_DATASET_PATH}/waymo_open_dataset_motion_v_1_3_1/uncompressed/tf_example/validation/validation_tfexample.tfrecord@150"
 export WOMD_TRAIN_PATH="${WAYMO_DATASET_PATH}/waymo_open_dataset_motion_v_1_3_1/uncompressed/tf_example/training/training_tfexample.tfrecord@1000"

@@ -36,7 +36,7 @@ def saving_data(data,name:str,mode='pkl'):
         with open(name+'.pkl', 'wb') as f:
             pickle.dump(data, f)
             # print('Saved: {}'.format(name+'.pkl'))
-    elif mode == 'np': 
+    elif mode == 'np':
         with open(name+'.npy', "wb") as f:
             np.save(f, arr=data)
     else:

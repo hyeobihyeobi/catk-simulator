@@ -7,8 +7,10 @@ import chex
 
 from waymax.datatypes.constant import TIME_INTERVAL
 
+from debug_visualisation import DebugVisualisation
+
 def drop_zero_on_roadobs(roadgraph_obs:np.array,
-                            max_roadgraph_segments:int = 40):
+                            max_roadgraph_segments:int = 10000):
     num_device,B,_,attribute = roadgraph_obs.shape
 
     vali_mask = np.where(roadgraph_obs.sum(-1)!=0,True,False)
@@ -47,7 +49,7 @@ def drop_zero_on_roadobs(roadgraph_obs:np.array,
     roadgraph_obs = roadgraph_obs[vali_mask].reshape(num_device,B,-1,attribute)
     return roadgraph_obs
 def preprocess_data_dist_jnp(data: dict[jnp.array],
-                            max_roadgraph_segments: int = 40):
+                            max_roadgraph_segments: int = 10000):
     '''
         The data dict is updated in place here to numpy
         TODO: write max_roadgraph_segments to config
@@ -62,19 +64,19 @@ def preprocess_data_dist_jnp(data: dict[jnp.array],
     point_tl_status = np.array(data['point_tl_status'])
     point_has_speed_limit = np.array(data['point_has_speed_limit'])
 
-    point_position = np.array(data['point_position'])
-    point_vector = np.array(data['point_vector'])
-    point_side = np.array(data['point_side'])
-    point_orientation = np.array(data['point_orientation'])
-    polygon_center = np.array(data['polygon_center'])
-    polygon_position = np.array(data['polygon_position'])
-    polygon_orientation = np.array(data['polygon_orientation'])
-    polygon_type = np.array(data['polygon_type'])
-    polygon_on_route = np.array(data['polygon_on_route'])
-    polygon_tl_status = np.array(data['polygon_tl_status'])
-    polygon_speed_limit = np.array(data['polygon_speed_limit'])
-    polygon_has_speed_limit = np.array(data['polygon_has_speed_limit'])
-    polygon_road_block_id = np.array(data['polygon_road_block_id'])
+#     point_position = np.array(data['point_position'])
+#     point_vector = np.array(data['point_vector'])
+#     point_side = np.array(data['point_side'])
+#     point_orientation = np.array(data['point_orientation'])
+#     polygon_center = np.array(data['polygon_center'])
+#     polygon_position = np.array(data['polygon_position'])
+#     polygon_orientation = np.array(data['polygon_orientation'])
+#     polygon_type = np.array(data['polygon_type'])
+#     polygon_on_route = np.array(data['polygon_on_route'])
+#     polygon_tl_status = np.array(data['polygon_tl_status'])
+#     polygon_speed_limit = np.array(data['polygon_speed_limit'])
+#     polygon_has_speed_limit = np.array(data['polygon_has_speed_limit'])
+#     polygon_road_block_id = np.array(data['polygon_road_block_id'])
     valid_mask = np.array(data['valid_mask'])
 
     # update the data
@@ -86,20 +88,21 @@ def preprocess_data_dist_jnp(data: dict[jnp.array],
     data['point_tl_status'] = point_tl_status
     data['point_has_speed_limit'] = point_has_speed_limit
     # TODO: Create polygon data
-    data['point_position'] = point_position
-    data['point_vector'] = point_vector
-    data['point_side'] = point_side
-    data['point_orientation'] = point_orientation
-    data['polygon_center'] = polygon_center
-    data['polygon_position'] = polygon_position
-    data['polygon_orientation'] = polygon_orientation
-    data['polygon_type'] = polygon_type
-    data['polygon_on_route'] = polygon_on_route
-    data['polygon_tl_status'] = polygon_tl_status
-    data['polygon_speed_limit'] = polygon_speed_limit
-    data['polygon_has_speed_limit'] = polygon_has_speed_limit
-    data['polygon_road_block_id'] = polygon_road_block_id
+#     data['point_position'] = point_position
+#     data['point_vector'] = point_vector
+#     data['point_side'] = point_side
+#     data['point_orientation'] = point_orientation
+#     data['polygon_center'] = polygon_center
+#     data['polygon_position'] = polygon_position
+#     data['polygon_orientation'] = polygon_orientation
+#     data['polygon_type'] = polygon_type
+#     data['polygon_on_route'] = polygon_on_route
+#     data['polygon_tl_status'] = polygon_tl_status
+#     data['polygon_speed_limit'] = polygon_speed_limit
+#     data['polygon_has_speed_limit'] = polygon_has_speed_limit
+#     data['polygon_road_block_id'] = polygon_road_block_id
     data['valid_mask'] = valid_mask
+
 #     obs = np.concatenate([type_route_seg, type_vehicles, type_roadobs], axis=2,dtype=np.float32)
 #     data['obs'] = obs
     # obs [num_devices, collected bs, numbers of types, 7]
@@ -150,13 +153,40 @@ def downsampled_elements_transformation(elements,
                                     transformed_yaw,
                                     elements[...,5:6]],axis=-1)
     return new_elements,unpad_mask
+
+def new_downsampled_elements_transformation(elements,
+                                        pose_global2ego,
+                                        sdc_yaw,):
+    """
+    Transform elements with layout (x, y, yaw, type, id) into ego frame.
+    """
+    elements = jnp.array(elements)
+    elements = elements[:, jnp.newaxis, ...]
+    unpad_mask = jnp.where(elements.sum(axis=-1) != 0, True, False)
+
+    transformed_xy = observation.geometry.transform_points(
+        pts=elements[..., 0:2],
+        pose_matrix=pose_global2ego.matrix)
+
+    sdc_yaw_ = jnp.repeat(sdc_yaw[..., jnp.newaxis], elements.shape[-2], axis=-1)
+    sdc_yaw_ = sdc_yaw_ * 180 / jnp.pi
+    transformed_yaw = observation.geometry.transform_yaw(-sdc_yaw_, elements[..., 2])
+    transformed_yaw = transformed_yaw[..., jnp.newaxis]
+
+    new_elements = jnp.concatenate([
+        transformed_xy,
+        transformed_yaw,
+        elements[..., 3:4],  # type
+        elements[..., 4:5],  # id
+    ], axis=-1)
+    return new_elements, unpad_mask
 def get_obs_from_routeandmap_saved(
                             state:datatypes.SimulatorState,
                             whole_map:np.array,
                             route:np.array,
                             tl_status:np.array,
                             on_route_mask:np.array,
-                            vis_distance:list=[80, 20], #for width and height
+                            vis_distance:list=[50, 50], #for width and height
                             sample_points = 20):
     '''
         TODO: write vis_distance into config
@@ -214,14 +244,23 @@ def get_obs_from_routeandmap_saved(
     pose_global2ego = observation.combine_two_object_pose_2d(src_pose=global_obs_filter.pose2d, dst_pose=pose2d)
     # for roadgraph
     whole_map_shape = whole_map.shape
-    new_whole_map, unpad_mask_map = downsampled_elements_transformation(whole_map, pose_global2ego, sdc_yaw)
+#     new_whole_map, unpad_mask_map = downsampled_elements_transformation(whole_map, pose_global2ego, sdc_yaw)
+    new_whole_map, unpad_mask_map = new_downsampled_elements_transformation(whole_map, pose_global2ego, sdc_yaw)
+
+#     DebugVisualisation().plot_map_jax(
+#         new_whole_map[..., :2],
+#         ids=new_whole_map[..., 4],
+#         types=new_whole_map[..., 3:4],
+#         batch_idx=0,
+#     )
+
     # Align on_route_mask to (B, P, 1) even if loaded with extra channels.
     on_route_mask = jnp.array(on_route_mask)
     B, P = whole_map.shape[:2]
     on_route_mask = on_route_mask.reshape(B, P, -1)[..., :1]
     # ROI_wh = [-vis_distance, vis_distance]
     # ROI_wh = jnp.array(ROI_wh)
-    ROI_wh = jnp.array(vis_distance)
+    ROI_wh = jnp.array(vis_distance) * 2
     # x
     mask_x = jnp.logical_and(new_whole_map[...,0] >= -ROI_wh[0]//2,
                             new_whole_map[...,0] <= ROI_wh[0]//2)
@@ -233,6 +272,13 @@ def get_obs_from_routeandmap_saved(
     whole_map_roi = new_whole_map*mask_roi[...,jnp.newaxis]
     whole_map_roi = whole_map_roi * unpad_mask_map[...,jnp.newaxis]
     on_route_roi = on_route_mask * mask_roi[..., jnp.newaxis] * unpad_mask_map[..., jnp.newaxis]
+
+#     DebugVisualisation().plot_map_jax(
+#         whole_map_roi[..., :2],
+#         ids=whole_map_roi[..., 4],
+#         types=whole_map_roi[..., 3:4],
+#         batch_idx=0,
+#     )
 
     roadgraph_obs = whole_map_roi.reshape(whole_map_shape)
     # vali_mask = jnp.where(roadgraph_obs.sum(-1)!=0,True,False)
@@ -299,103 +345,111 @@ def get_obs_from_routeandmap_saved(
     # Resample roadgraph polylines to fixed 20 points per polyline (host-side numpy to avoid tracer boolean indexing).
     padding_mask = jnp.array(get_padding_mask(roadgraph_obs))
     valid_mask = ~padding_mask
-    road_obs_arr = jnp.array(jax.device_get(roadgraph_obs))
-    ids_arr = jnp.array(jax.device_get(type_roadobs[..., -1]))
-    sampled_paths = []
-    sampled_types = []
-    sampled_ids = []
-    max_paths = 0
-    for b in range(road_obs_arr.shape[0]):
-#         valid_points = road_obs_arr[b][jnp.where(valid_mask[b])[0]]
-#         valid_ids = ids_arr[b][valid_mask[b]].astype(jnp.int32)
-        valid_points = jnp.where(valid_mask[b][:, None], road_obs_arr[b], 0.0)
-        valid_ids = jnp.where(valid_mask[b], ids_arr[b], -1).astype(jnp.int32)
-        batch_paths = []
-        batch_types = []
-        batch_ids = []
-        for uid in jnp.unique(valid_ids):
-            pts = valid_points[valid_ids == uid]
-            if pts.shape[0] < 2:
-                continue
-            path_xyz = jnp.concatenate([pts[:, 1:3], jnp.zeros((pts.shape[0], 1), dtype=pts.dtype)], axis=-1)
-            sampled = jnp.array(_interpolate_polyline(jnp.array(path_xyz), 20))
-            batch_paths.append(sampled)
-            batch_types.append(jnp.full((20,), pts[0, -1], dtype=sampled.dtype))
-            batch_ids.append(jnp.full((20,), uid, dtype=jnp.int32))
-        max_paths = max(max_paths, len(batch_paths))
-        sampled_paths.append(batch_paths)
-        sampled_types.append(batch_types)
-        sampled_ids.append(batch_ids)
-    padded_paths = []
-    padded_types = []
-    padded_ids = []
-    for paths, types, ids_list in zip(sampled_paths, sampled_types, sampled_ids):
-        if len(paths) < max_paths:
-            paths = paths + [jnp.zeros((20, 3), dtype=jnp.float32)] * (max_paths - len(paths))
-            types = types + [jnp.zeros((20,), dtype=jnp.float32)] * (max_paths - len(types))
-            ids_list = ids_list + [jnp.zeros((20,), dtype=jnp.int32)] * (max_paths - len(ids_list))
-        padded_paths.append(jnp.stack(paths, axis=0) if paths else jnp.zeros((0, 20, 3), dtype=jnp.float32))
-        padded_types.append(jnp.stack(types, axis=0) if types else jnp.zeros((0, 20), dtype=jnp.float32))
-        padded_ids.append(jnp.stack(ids_list, axis=0) if ids_list else jnp.zeros((0, 20), dtype=jnp.int32))
-    roadgraph_sampled = jnp.array(jnp.stack(padded_paths, axis=0) if padded_paths else jnp.zeros((0, 0, 20, 3), dtype=jnp.float32))
-    roadgraph_sampled_type = jnp.array(jnp.stack(padded_types, axis=0) if padded_types else jnp.zeros((0, 0, 20), dtype=jnp.float32))
-    roadgraph_sampled_id = jnp.array(jnp.stack(padded_ids, axis=0) if padded_ids else jnp.zeros((0, 0, 20), dtype=jnp.int32))
+#     road_obs_arr = jnp.array(jax.device_get(roadgraph_obs))
+#     ids_arr = jnp.array(jax.device_get(type_roadobs[..., -1]))
+#     sampled_paths = []
+#     sampled_types = []
+#     sampled_ids = []
+#     max_paths = 0
 
-    B, M, P = roadgraph_sampled.shape[0], roadgraph_sampled.shape[1], sample_points
-    point_position = jnp.zeros((B, M, 1, P, 2), dtype=jnp.float64)
-    point_vector = jnp.zeros((B, M, 1, P, 2), dtype=jnp.float64)
-    point_side = jnp.zeros((B, M, 1), dtype=jnp.int8)
-    point_orientation = jnp.zeros((B, M, 1, P), dtype=jnp.float64)
-    polygon_center = jnp.zeros((B, M, 3), dtype=jnp.float64)
-    polygon_position = jnp.zeros((B, M, 2), dtype=jnp.float64)
-    polygon_orientation = jnp.zeros((B, M,), dtype=jnp.float64)
-    polygon_type = jnp.zeros((B, M,), dtype=jnp.int8)
-    polygon_on_route = jnp.zeros((B, M,), dtype=bool)
-    polygon_tl_status = jnp.zeros((B, M,), dtype=jnp.int8)
-    polygon_speed_limit = jnp.zeros((B, M,), dtype=jnp.float64)
-    polygon_has_speed_limit = jnp.zeros((B, M,), dtype=bool)
-    polygon_road_block_id = jnp.zeros((B, M,), dtype=jnp.int32)
+#     for b in range(road_obs_arr.shape[0]):
+# #         valid_points = road_obs_arr[b][jnp.where(valid_mask[b])[0]]
+# #         valid_ids = ids_arr[b][valid_mask[b]].astype(jnp.int32)
+#         valid_points = jnp.where(valid_mask[b][:, None], road_obs_arr[b], 0.0)
+#         valid_ids = jnp.where(valid_mask[b], ids_arr[b], -1).astype(jnp.int32)
+#         batch_paths = []
+#         batch_types = []
+#         batch_ids = []
+#         for uid in jnp.unique(valid_ids):
+#             pts = valid_points[valid_ids == uid]
+#             if pts.shape[0] < 2:
+#                 continue
+#             path_xyz = jnp.concatenate([pts[:, 1:3], jnp.zeros((pts.shape[0], 1), dtype=pts.dtype)], axis=-1)
+#             sampled = jnp.array(_interpolate_polyline(jnp.array(path_xyz), 20))
+#             batch_paths.append(sampled)
+#             batch_types.append(jnp.full((20,), pts[0, -1], dtype=sampled.dtype))
+#             batch_ids.append(jnp.full((20,), uid, dtype=jnp.int32))
+#         max_paths = max(max_paths, len(batch_paths))
+#         sampled_paths.append(batch_paths)
+#         sampled_types.append(batch_types)
+#         sampled_ids.append(batch_ids)
+#     padded_paths = []
+#     padded_types = []
+#     padded_ids = []
+#     for paths, types, ids_list in zip(sampled_paths, sampled_types, sampled_ids):
+#         if len(paths) < max_paths:
+#             paths = paths + [jnp.zeros((20, 3), dtype=jnp.float32)] * (max_paths - len(paths))
+#             types = types + [jnp.zeros((20,), dtype=jnp.float32)] * (max_paths - len(types))
+#             ids_list = ids_list + [jnp.zeros((20,), dtype=jnp.int32)] * (max_paths - len(ids_list))
+#         padded_paths.append(jnp.stack(paths, axis=0) if paths else jnp.zeros((0, 20, 3), dtype=jnp.float32))
+#         padded_types.append(jnp.stack(types, axis=0) if types else jnp.zeros((0, 20), dtype=jnp.float32))
+#         padded_ids.append(jnp.stack(ids_list, axis=0) if ids_list else jnp.zeros((0, 20), dtype=jnp.int32))
+#     roadgraph_sampled = jnp.array(jnp.stack(padded_paths, axis=0) if padded_paths else jnp.zeros((0, 0, 20, 3), dtype=jnp.float32))
+#     roadgraph_sampled_type = jnp.array(jnp.stack(padded_types, axis=0) if padded_types else jnp.zeros((0, 0, 20), dtype=jnp.float32))
+#     roadgraph_sampled_id = jnp.array(jnp.stack(padded_ids, axis=0) if padded_ids else jnp.zeros((0, 0, 20), dtype=jnp.int32))
 
-    point_position = roadgraph_sampled[..., :2]
-    point_vector = roadgraph_sampled[..., 1: ,:2] - roadgraph_sampled[..., :-1, :2]
-    point_side = jnp.arange(1)
-    point_orientation = roadgraph_sampled[..., 2]
-    polygon_center = roadgraph_sampled[..., sample_points // 2,:]
-    polygon_position = roadgraph_sampled[..., 0, :2]
-    polygon_orientation = roadgraph_sampled[..., 0, 2:3]
-    polygon_type = roadgraph_sampled_type
-    polygon_on_route = point_on_route
-    polygon_tl_status = point_tl_status
-    polygon_speed_limit = point_has_speed_limit
-    polygon_has_speed_limit = point_has_speed_limit
-    polygon_road_block_id = roadgraph_sampled_id
-    valid_mask = jnp.any(roadgraph_sampled.sum(axis=-1) != 0, axis=-1)
+
+
+#     roadgraph_sampled = jnp.zeros((roadgraph_obs.shape[0], 0, sample_points, 3), dtype=jnp.float32)
+#     roadgraph_sampled_type = jnp.zeros((roadgraph_obs.shape[0], 0, sample_points), dtype=jnp.float32)
+#     roadgraph_sampled_id = jnp.zeros((roadgraph_obs.shape[0], 0, sample_points), dtype=jnp.int32)
+# 
+#     B, M, P = roadgraph_sampled.shape[0], roadgraph_sampled.shape[1], sample_points
+#     point_position = jnp.zeros((B, M, 1, P, 2), dtype=jnp.float64)
+#     point_vector = jnp.zeros((B, M, 1, P, 2), dtype=jnp.float64)
+#     point_side = jnp.zeros((B, M, 1), dtype=jnp.int8)
+#     point_orientation = jnp.zeros((B, M, 1, P), dtype=jnp.float64)
+#     polygon_center = jnp.zeros((B, M, 3), dtype=jnp.float64)
+#     polygon_position = jnp.zeros((B, M, 2), dtype=jnp.float64)
+#     polygon_orientation = jnp.zeros((B, M,), dtype=jnp.float64)
+#     polygon_type = jnp.zeros((B, M,), dtype=jnp.int8)
+#     polygon_on_route = jnp.zeros((B, M,), dtype=bool)
+#     polygon_tl_status = jnp.zeros((B, M,), dtype=jnp.int8)
+#     polygon_speed_limit = jnp.zeros((B, M,), dtype=jnp.float64)
+#     polygon_has_speed_limit = jnp.zeros((B, M,), dtype=bool)
+#     polygon_road_block_id = jnp.zeros((B, M,), dtype=jnp.int32)
+# 
+#     point_position = roadgraph_sampled[..., :2]
+#     point_vector = roadgraph_sampled[..., 1: ,:2] - roadgraph_sampled[..., :-1, :2]
+#     point_side = jnp.arange(1)
+#     point_orientation = roadgraph_sampled[..., 2]
+#     polygon_center = roadgraph_sampled[..., sample_points // 2,:]
+#     polygon_position = roadgraph_sampled[..., 0, :2]
+#     polygon_orientation = roadgraph_sampled[..., 0, 2:3]
+#     polygon_type = roadgraph_sampled_type
+#     polygon_on_route = point_on_route
+#     polygon_tl_status = point_tl_status
+#     polygon_speed_limit = point_has_speed_limit
+#     polygon_has_speed_limit = point_has_speed_limit
+#     polygon_road_block_id = roadgraph_sampled_id
+#     valid_mask = jnp.any(roadgraph_sampled.sum(axis=-1) != 0, axis=-1)
 
     return dict(
         route_segments=type_route_seg,
         vehicle_segments=type_vehicles,
-        roadgraph_obs=type_roadobs,
+#         roadgraph_obs=type_roadobs,
+        roadgraph_obs=roadgraph_obs,
         his_veh_trajs = his_veh_trajs,
         point_on_route=point_on_route,
         point_tl_status=point_tl_status,
         point_has_speed_limit=point_has_speed_limit,
-        roadgraph_sampled=roadgraph_sampled,
-        roadgraph_sampled_type=roadgraph_sampled_type,
-        # traj_obs=traj_obs,
-        # traj_next_stamp=traj_next_stamp,
-        point_position = point_position,
-        point_vector = point_vector,
-        point_side = point_side,
-        point_orientation = point_orientation,
-        polygon_center = polygon_center,
-        polygon_position = polygon_position,
-        polygon_orientation = polygon_orientation,
-        polygon_type = polygon_type,
-        polygon_on_route = polygon_on_route,
-        polygon_tl_status = polygon_tl_status,
-        polygon_speed_limit = polygon_speed_limit,
-        polygon_has_speed_limit = polygon_has_speed_limit,
-        polygon_road_block_id = polygon_road_block_id,
+#         roadgraph_sampled=roadgraph_sampled,
+#         roadgraph_sampled_type=roadgraph_sampled_type,
+#         # traj_obs=traj_obs,
+#         # traj_next_stamp=traj_next_stamp,
+#         point_position = point_position,
+#         point_vector = point_vector,
+#         point_side = point_side,
+#         point_orientation = point_orientation,
+#         polygon_center = polygon_center,
+#         polygon_position = polygon_position,
+#         polygon_orientation = polygon_orientation,
+#         polygon_type = polygon_type,
+#         polygon_on_route = polygon_on_route,
+#         polygon_tl_status = polygon_tl_status,
+#         polygon_speed_limit = polygon_speed_limit,
+#         polygon_has_speed_limit = polygon_has_speed_limit,
+#         polygon_road_block_id = polygon_road_block_id,
         valid_mask = valid_mask
     ), sdc_obs
 
@@ -455,14 +509,14 @@ def _interpolate_polyline(points: jax.Array, t: int) -> jax.Array:
 
     return points_interp
 
-get_obs_from_routeandmap_saved_pmap = jax.pmap(
-    get_obs_from_routeandmap_saved,
-    static_broadcasted_argnums=(5,),
-)
-get_obs_from_routeandmap_saved_jit = jax.jit(
-    get_obs_from_routeandmap_saved,
-    static_argnames=('vis_distance',),
-)
+# get_obs_from_routeandmap_saved_pmap = jax.pmap(
+#     get_obs_from_routeandmap_saved,
+#     static_broadcasted_argnums=(5,),
+# )
+# get_obs_from_routeandmap_saved_jit = jax.jit(
+#     get_obs_from_routeandmap_saved,
+#     static_argnames=('vis_distance',),
+# )
 
-# get_obs_from_routeandmap_saved_pmap = get_obs_from_routeandmap_saved
-# get_obs_from_routeandmap_saved_jit = get_obs_from_routeandmap_saved
+get_obs_from_routeandmap_saved_pmap = get_obs_from_routeandmap_saved
+get_obs_from_routeandmap_saved_jit = get_obs_from_routeandmap_saved

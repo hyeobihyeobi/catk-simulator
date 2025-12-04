@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import numpy as np
 import pytorch_lightning as pl
 from src.policy.commons.optimzier import build_optimizer
 from src.policy.commons.scheduler import build_scheduler
@@ -266,6 +267,9 @@ class CarPLAN(pl.LightningModule):
         # self.mpad_blocks = nn.ModuleList([MPA_blocks(hidden_size=hidden_size, num_cross_attention_heads=num_cross_attention_heads) for _ in range(num_of_decoder)])
 
         #         self.imagine_query = None
+        self.av_cat = av_cat
+        self.no_displacement_for_CLSR = no_displacement_for_CLSR
+        self.no_prediction_for_CLSR = no_prediction_for_CLSR
         self.history_steps = history_steps
 
         self.pos_emb = FourierEmbedding(3, dim, 64)
@@ -295,7 +299,7 @@ class CarPLAN(pl.LightningModule):
         self.map_encoder = MapEncoder(
             dim=dim,
             polygon_channel=polygon_channel,
-            use_lane_boundary=True,
+            use_lane_boundary=False,
         )
 
         self.static_objects_encoder = StaticObjectsEncoder(dim=dim)
@@ -305,6 +309,18 @@ class CarPLAN(pl.LightningModule):
             for dp in [x.item() for x in torch.linspace(0, drop_path, encoder_depth)]
         )
         self.norm = nn.LayerNorm(dim)
+
+        self.displacement_encoder_blocks = nn.ModuleList(
+            TransformerEncoderLayer(dim=dim, num_heads=num_heads, drop_path=dp)
+            for dp in [x.item() for x in torch.linspace(0, drop_path, encoder_depth)]
+        )
+        self.displacement_norm = nn.LayerNorm(dim)
+
+        self.agent_predictor = AgentPredictor(dim=dim, future_steps=future_steps)
+        self.dist_predictor = DistPredictor(dim=dim, future_steps=future_steps)
+
+        if self.av_cat:
+            self.av_cat_x_proj = nn.Linear(2 * dim, dim)
 
         if is_carplan:
             self.planning_decoder = deepseek_decoder(
@@ -468,32 +484,58 @@ class CarPLAN(pl.LightningModule):
         agent_pos = data["agent"]["position"][:, :, self.history_steps - 1]
         agent_heading = data["agent"]["heading"][:, :, self.history_steps - 1]
         agent_mask = data["agent"]["valid_mask"][:, :, : self.history_steps]
+        polygon_center = data["map"]["polygon_center"]
+        polygon_mask = data["map"]["valid_mask"]
 
         bs, A = agent_pos.shape[0:2]
 
-#         x_polygon = self.map_encoder(data)
+        x_polygon = self.map_encoder(data)
 #         x_static, static_pos, static_key_padding = self.static_objects_encoder(data)
-# 
-#         M_shape, S_shape = x_polygon.shape[1], x_static.shape[1]
-#         position = torch.cat([agent_pos, polygon_center[..., :2]], dim=1) #torch.Size([B, N+1+M, 2])
-#         angle = torch.cat([agent_heading, polygon_center[..., 2]], dim=1) #torch.Size([B, N+1+M])
-#         angle = (angle + math.pi) % (2 * math.pi) - math.pi
-#         pos = torch.cat([position, angle.unsqueeze(-1)], dim=-1) #torch.Size([B, N+1+M, 3])
 
-
-        angle = agent_heading
+        M_shape = x_polygon.shape[1]
+        position = torch.cat([agent_pos, polygon_center[..., :2]], dim=1) #torch.Size([B, N+1+M, 2])
+        angle = torch.cat([agent_heading, polygon_center[..., 2]], dim=1) #torch.Size([B, N+1+M])
         angle = (angle + math.pi) % (2 * math.pi) - math.pi
-        pos = torch.cat([agent_pos, angle.unsqueeze(-1)], dim=-1) #torch.Size([B, N+1+M, 3])
+        pos = torch.cat([position, angle.unsqueeze(-1)], dim=-1) #torch.Size([B, N+1+M, 3])
 
-        x_agent = self.agent_encoder(data)
+
+#         angle = agent_heading
+#         angle = (angle + math.pi) % (2 * math.pi) - math.pi
+#         pos = torch.cat([agent_pos, angle.unsqueeze(-1)], dim=-1) #torch.Size([B, N+1+M, 3])
 
         agent_key_padding = ~(agent_mask.any(-1))
-#         polygon_key_padding = ~(polygon_mask.any(-1))
-#         key_padding_mask = torch.cat([agent_key_padding, polygon_key_padding], dim=-1)
+        polygon_key_padding = ~(polygon_mask.any(-1))
+        key_padding_mask = torch.cat([agent_key_padding, polygon_key_padding], dim=-1)
 
-        key_padding_mask = agent_key_padding
+        x_agent = self.agent_encoder(data)
+        x_polygon = self.map_encoder(data)
 
-        x = x_agent
+        x = torch.cat([x_agent, x_polygon], dim=1)
+
+        pos_embed = self.pos_emb(pos)
+        x = x + pos_embed
+
+        for blk in self.encoder_blocks:
+            x = blk(x, key_padding_mask=key_padding_mask, return_attn_weights=False)
+        x = self.norm(x) #torch.Size([B, N+1+M+S, 128])
+
+        if self.no_prediction_for_CLSR:
+            prediction = torch.zeros(bs, A-1, self.future_steps, 6).to(x)
+        else:
+            prediction = self.agent_predictor(x[:, 1:A]) #torch.Size([B, N, Future_step, 6])
+
+        x_scene_encoder = None
+
+        for dl in self.displacement_encoder_blocks:
+            x = dl(x, key_padding_mask=key_padding_mask, return_attn_weights=False)
+        x = self.displacement_norm(x)
+
+        if self.av_cat:
+            cat_av_dist = torch.cat([x[:, 1:], x[:, 0:1].repeat(1, A+M_shape-1, 1)], dim=-1)
+            cat_av_dist = self.av_cat_x_proj(cat_av_dist)
+            dist_prediction = self.dist_predictor(cat_av_dist)
+        else:
+            dist_prediction = self.dist_predictor(x[:, 1:])
 
         ref_line_available = reference_lines["position"].shape[1] > 0
         R, M = reference_lines["position"].shape[1], 12
@@ -503,7 +545,7 @@ class CarPLAN(pl.LightningModule):
                 reference_lines, {"enc_emb": x, "enc_key_padding_mask": key_padding_mask, "enc_pos": pos, "x_scene_encoder": None}
             )
         else:
-            trajectory, probability, pred_scenario_type, q, tgt_route, gates, load, gates_dict,scores_list = None, None, None, None, None, None, None, None, None
+            trajectory, probability, pred_scenario_type, q, tgt_route, gates, load, gates_dict, scores_list = None, None, None, None, None, None, None, None, None
 
         # if self.ref_free_traj:
         ref_free_traj = self.ref_free_decoder(x[:, 1, :]).reshape(
@@ -511,9 +553,9 @@ class CarPLAN(pl.LightningModule):
         )
 
         agent_embeddings_for_prediction = x + x[:, 0:1, :]
-        loc = self.loc_predictor(agent_embeddings_for_prediction).view(bs, 128, 80, 2)
-        yaw = self.yaw_predictor(agent_embeddings_for_prediction).view(bs, 128, 80, 2)
-        vel = self.vel_predictor(agent_embeddings_for_prediction).view(bs, 128, 80, 2)
+        loc = self.loc_predictor(agent_embeddings_for_prediction[..., :A, :]).view(bs, A, 80, 2)
+        yaw = self.yaw_predictor(agent_embeddings_for_prediction[..., :A, :]).view(bs, A, 80, 2)
+        vel = self.vel_predictor(agent_embeddings_for_prediction[..., :A, :]).view(bs, A, 80, 2)
         prediction = torch.cat([loc, yaw, vel], dim=-1)
 
         out = {
@@ -524,6 +566,8 @@ class CarPLAN(pl.LightningModule):
             "scores_list": scores_list,
             "ref_free_trajectory": ref_free_traj,
         }
+
+        out["dist_prediction"] = dist_prediction
 
         latent_dist = None
         rep_dist = None
@@ -607,6 +651,117 @@ class CarPLAN(pl.LightningModule):
             dim=-1,
         )
 
+
+        road_obs_arr = _to_torch(ss['roadgraph_obs'])
+        map_valid_mask = _to_torch(ss['valid_mask'])
+        sample_points = 20
+        ids_arr = road_obs_arr[..., 4].long()
+        valid_mask = (road_obs_arr.sum(dim=-1) != 0)
+        sampled_paths: list[list[torch.Tensor]] = []
+        sampled_types: list[list[torch.Tensor]] = []
+        sampled_ids: list[list[torch.Tensor]] = []
+        max_paths = 0
+
+        for b in range(road_obs_arr.shape[0]):
+    #         valid_points = road_obs_arr[b][jnp.where(valid_mask[b])[0]]
+    #         valid_ids = ids_arr[b][valid_mask[b]].astype(jnp.int32)
+            valid_points = torch.where(
+                valid_mask[b].unsqueeze(-1),
+                road_obs_arr[b],
+                torch.zeros_like(road_obs_arr[b]),
+            )
+            valid_ids = torch.where(
+                valid_mask[b],
+                ids_arr[b],
+                torch.full_like(ids_arr[b], -1),
+            )
+            batch_paths = []
+            batch_types = []
+            batch_ids = []
+            for uid in torch.unique(valid_ids[valid_ids >= 0]):
+                pts = valid_points[valid_ids == uid]
+                if pts.shape[0] < 2:
+                    continue
+                path_xyz = torch.cat(
+                    [
+                        pts[:, 1:3],
+                        torch.zeros((pts.shape[0], 1), device=pts.device, dtype=pts.dtype),
+                    ],
+                    dim=-1,
+                )
+                sampled = self.interpolate_polyline(path_xyz, sample_points)
+                batch_paths.append(sampled)
+                # roadgraph_obs columns: [x, y, yaw, type, id]; use column 3 for type
+                type_val = pts[0, 3]
+                type_val = torch.where(
+                    type_val == 18,
+                    torch.tensor(3, device=pts.device, dtype=type_val.dtype),
+                    type_val,
+                )
+                batch_types.append(torch.full((sample_points,), type_val, device=pts.device, dtype=sampled.dtype))
+                batch_ids.append(torch.full((sample_points,), uid, device=pts.device, dtype=torch.long))
+            max_paths = max(max_paths, len(batch_paths))
+            sampled_paths.append(batch_paths)
+            sampled_types.append(batch_types)
+            sampled_ids.append(batch_ids)
+        padded_paths = []
+        padded_types = []
+        padded_ids = []
+        for paths, types, ids_list in zip(sampled_paths, sampled_types, sampled_ids):
+            if len(paths) < max_paths:
+                paths = paths + [torch.zeros((sample_points, 3), device=road_obs_arr.device, dtype=road_obs_arr.dtype)] * (max_paths - len(paths))
+                types = types + [torch.zeros((sample_points,), device=road_obs_arr.device, dtype=road_obs_arr.dtype)] * (max_paths - len(types))
+                ids_list = ids_list + [torch.zeros((sample_points,), device=road_obs_arr.device, dtype=torch.long)] * (max_paths - len(ids_list))
+            padded_paths.append(torch.stack(paths, dim=0) if paths else torch.zeros((0, sample_points, 3), device=road_obs_arr.device, dtype=road_obs_arr.dtype))
+            padded_types.append(torch.stack(types, dim=0) if types else torch.zeros((0, sample_points), device=road_obs_arr.device, dtype=road_obs_arr.dtype))
+            padded_ids.append(torch.stack(ids_list, dim=0) if ids_list else torch.zeros((0, sample_points), device=road_obs_arr.device, dtype=torch.long))
+
+        if len(padded_paths) > 0:
+            roadgraph_sampled = torch.stack(padded_paths, dim=0)
+            roadgraph_sampled_type = torch.stack(padded_types, dim=0)
+            roadgraph_sampled_id = torch.stack(padded_ids, dim=0)
+        else:
+            roadgraph_sampled = torch.zeros((road_obs_arr.shape[0], 0, sample_points, 3), device=road_obs_arr.device, dtype=road_obs_arr.dtype)
+            roadgraph_sampled_type = torch.zeros((road_obs_arr.shape[0], 0, sample_points), device=road_obs_arr.device, dtype=road_obs_arr.dtype)
+            roadgraph_sampled_id = torch.zeros((road_obs_arr.shape[0], 0, sample_points), device=road_obs_arr.device, dtype=torch.long)
+
+        B, M, P = roadgraph_sampled.shape[0], roadgraph_sampled.shape[1], sample_points
+        point_position = roadgraph_sampled[..., :2].unsqueeze(2)  # (B, M, 1, P, 2)
+        # forward difference with zero padding on the last point
+        diff = roadgraph_sampled[..., 1:, :2] - roadgraph_sampled[..., :-1, :2]
+        zero_tail = torch.zeros_like(diff[..., :1, :])
+        point_vector = torch.cat([diff, zero_tail], dim=-2).unsqueeze(2)  # (B, M, 1, P, 2)
+        point_side = torch.zeros((B, M, 1), device=road_obs_arr.device, dtype=torch.int8)
+        point_orientation = roadgraph_sampled[..., 2].unsqueeze(2)  # (B, M, 1, P)
+        polygon_center = roadgraph_sampled[..., sample_points // 2, :]
+        polygon_position = roadgraph_sampled[..., 0, :2]
+        polygon_orientation = roadgraph_sampled[..., 0, 2:3]
+        polygon_type = roadgraph_sampled_type[..., 0] if roadgraph_sampled_type.numel() else torch.zeros((B, M), device=road_obs_arr.device, dtype=road_obs_arr.dtype)
+        polygon_on_route = _to_torch(ss.get("polygon_on_route", torch.zeros((B, M), device=road_obs_arr.device, dtype=torch.long)))
+        polygon_tl_status = _to_torch(ss.get("polygon_tl_status", torch.zeros((B, M), device=road_obs_arr.device, dtype=torch.long)))
+        polygon_speed_limit = _to_torch(ss.get("polygon_speed_limit", torch.zeros((B, M), device=road_obs_arr.device, dtype=road_obs_arr.dtype)))
+        polygon_has_speed_limit = _to_torch(ss.get("polygon_has_speed_limit", torch.zeros((B, M), device=road_obs_arr.device, dtype=torch.bool)))
+        polygon_road_block_id = roadgraph_sampled_id[..., 0] if roadgraph_sampled_id.numel() else torch.zeros((B, M), device=road_obs_arr.device, dtype=torch.long)
+        valid_mask = torch.any(roadgraph_sampled.abs().sum(dim=-1) != 0, dim=-1)
+        # Align map_valid_mask to the sampled roadgraph shape (B, M, P) so downstream code can use the same masking.
+        map_valid_mask_raw = ss.get("map_valid_mask", None)
+        if map_valid_mask_raw is not None:
+            map_valid_mask_raw = _to_torch(map_valid_mask_raw)
+            # Flatten any leading device/batch dims and trim/pad to match sample_points per segment.
+            map_valid_mask_raw = map_valid_mask_raw.reshape(B, -1)
+            if map_valid_mask_raw.shape[-1] >= sample_points:
+                map_valid_mask_sampled = map_valid_mask_raw[:, : sample_points]
+            else:
+                pad_len = sample_points - map_valid_mask_raw.shape[-1]
+                map_valid_mask_sampled = torch.cat(
+                    [map_valid_mask_raw, torch.zeros((B, pad_len), device=map_valid_mask_raw.device, dtype=map_valid_mask_raw.dtype)],
+                    dim=-1,
+                )
+            # Broadcast to (B, M, P) following roadgraph_sampled.
+            map_valid_mask = map_valid_mask_sampled[:, None, :].expand(B, M, sample_points)
+        else:
+            map_valid_mask = torch.ones((B, M, sample_points), device=road_obs_arr.device, dtype=torch.bool)
+
         # his shape now: (num_envs, num_agents, T_hist, feat)
         agent_pos = his[..., 1:3]                     # (B, A, T, 2)
         agent_shape = his[..., 3:5]                   # (B, A, T, 2) -> width, length
@@ -615,6 +770,21 @@ class CarPLAN(pl.LightningModule):
         agent_acc = his[..., 8:10]                    # ax, ay
         agent_valid = (his[..., 10] == 1).bool()      # (B, A, T)
         agent_category = his[..., 0, 0]               # type id (2=vehicle, 4=SDC set upstream)
+
+#         point_position = _to_torch(ss['point_position'])
+#         point_vector = _to_torch(ss['point_vector'])
+#         point_side = _to_torch(ss['point_side'])
+#         point_orientation = _to_torch(ss['point_orientation'])
+#         polygon_center = _to_torch(ss['polygon_center'])
+#         polygon_position = _to_torch(ss['polygon_position'])
+#         polygon_orientation = _to_torch(ss['polygon_orientation'])
+#         polygon_type = _to_torch(ss['polygon_type'])
+#         polygon_on_route = _to_torch(ss['polygon_on_route'])
+#         polygon_tl_status = _to_torch(ss['polygon_tl_status'])
+#         polygon_speed_limit = _to_torch(ss['polygon_speed_limit'])
+#         polygon_has_speed_limit = _to_torch(ss['polygon_has_speed_limit'])
+#         polygon_road_block_id = _to_torch(ss['polygon_road_block_id'])
+#         valid_mask = _to_torch(ss['valid_mask'])
 
         data_dict = {
             "current_state": current_state,
@@ -626,12 +796,23 @@ class CarPLAN(pl.LightningModule):
                 "shape": agent_shape,
                 "category": agent_category,
                 "valid_mask": agent_valid,
-            } #,
-#             "map": {
-#                 # "polygons": map_polygons,
-#                 # "poly_types": map_poly_types,
-#                 # "poly_valid_mask": map_poly_valid_mask,
-#             }
+            } ,
+            "map": {
+                "point_position": point_position,
+                "point_vector": point_vector,
+                "point_side": point_side,
+                "point_orientation": point_orientation,
+                "polygon_center": polygon_center,
+                "polygon_position": polygon_position,
+                "polygon_orientation": polygon_orientation,
+                "polygon_type": polygon_type,
+                "polygon_on_route": polygon_on_route,
+                "polygon_tl_status": polygon_tl_status,
+                "polygon_speed_limit": polygon_speed_limit,
+                "polygon_has_speed_limit": polygon_has_speed_limit.bool(),
+                "polygon_road_block_id": polygon_road_block_id,
+                "valid_mask": map_valid_mask.bool(),
+            }
         }
 
         return data_dict
@@ -668,6 +849,49 @@ class CarPLAN(pl.LightningModule):
             padding_mask=padding_mask,
         )
         return action
+
+
+    def interpolate_polyline(self, points, t: int):
+        """copy from av2-api"""
+
+        if not torch.is_tensor(points):
+            points = torch.as_tensor(points, device=self.device)
+        if points.ndim != 2:
+            raise ValueError("Input array must be (N,2) or (N,3) in shape.")
+
+        # the number of points on the curve itself
+        n, _ = points.shape
+
+        # equally spaced in arclength -- the number of points that will be uniformly interpolated
+        eq_spaced_points = torch.linspace(0, 1, t, device=points.device, dtype=points.dtype)
+
+        # Compute the chordal arclength of each segment.
+        # Compute differences between each x coord, to get the dx's
+        # Do the same to get dy's. Then the hypotenuse length is computed as a norm.
+        chordlen: torch.Tensor = torch.norm(points[1:] - points[:-1], dim=1)
+        # Normalize the arclengths to a unit total
+        chordlen = chordlen / torch.clamp(chordlen.sum(), min=1e-8)
+        # cumulative arclength
+
+        cumarc: torch.Tensor = torch.zeros(len(chordlen) + 1, device=points.device, dtype=points.dtype)
+        cumarc[1:] = torch.cumsum(chordlen, dim=0)
+
+        # which interval did each point fall in, in terms of eq_spaced_points? (bin index)
+        tbins: torch.Tensor = torch.bucketize(eq_spaced_points, cumarc).to(torch.long)
+
+        # #catch any problems at the ends
+        tbins = torch.where((tbins <= 0) | (eq_spaced_points <= 0), torch.ones_like(tbins), tbins)
+        tbins = torch.where((tbins >= n) | (eq_spaced_points >= 1), torch.full_like(tbins, n - 1), tbins)
+
+        chordlen_safe = torch.where(chordlen == 0, chordlen + 1e-6, chordlen)
+
+        s = (eq_spaced_points - cumarc[tbins - 1]) / chordlen_safe[tbins - 1]
+        anchors = points[tbins - 1, :]
+        # broadcast to scale each row of `points` by a different row of s
+        offsets = (points[tbins, :] - points[tbins - 1, :]) * s.unsqueeze(-1)
+        points_interp: torch.Tensor = anchors + offsets
+
+        return points_interp
 
     def get_planning_loss(self, future_projection, valid_mask, trajectory, probability, target_valid_mask, target, bs):
         """

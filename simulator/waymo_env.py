@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from waymax import dynamics
 from simulator.waymo_base import WaymoBaseEnv
 from simulator.metric import Metric
-from simulator.utils import combin_traj,build_discretizer,get_cache_polylines_baseline
+from simulator.utils import combin_traj, build_discretizer, get_cache_polylines_baseline, get_cache_tl_status_baseline, get_cache_on_route_baseline
 from simulator.observation import (
     get_obs_from_routeandmap_saved_jit,
     get_obs_from_routeandmap_saved_pmap,
@@ -235,10 +235,10 @@ def get_reference_line(state):
                 # points = scenario.sdc_paths.xy[i, :num_steps]
                 av_xy = np.array(state.current_log_trajectory.xy)[de, bs][np.array(state.object_metadata.is_sdc)[de, bs]].squeeze(1)
                 distances = np.sqrt(np.sum((points - av_xy)**2, axis=1))
-                start_idx = np.argmin(distances) 
+                start_idx = np.argmin(distances)
                 if distances[start_idx] > 1:
                     continue
-                start_idx = np.argmin(distances) 
+                start_idx = np.argmin(distances)
                 path_xy, path_idx = shortest_path_unordered(points[start_idx:], av_xy)
                 path_xy, mask = resample_and_pad_zeros(path_xy, target_n=120)
                 if path_xy[mask].shape[0] < 2:
@@ -434,6 +434,7 @@ class WaymoEnv():
 
         self.path_to_map = os.path.join(data_conf.path_to_processed_map_route,'map')
         self.path_to_route = os.path.join(data_conf.path_to_processed_map_route,'route')
+        self.path_to_tl = os.path.join(data_conf.path_to_processed_map_route,'tl_status')
 
     def _compute_obs(self, state):
         if self._catk_multi:
@@ -444,17 +445,23 @@ class WaymoEnv():
             # Replicate map and route data across devices
             map_arg = self.road_np
             route_arg = self.route_np
+            tl_arg = self.tl_np
+            on_route_arg = self.on_route_mask_np
         else:
             if self.num_devices == 1:
                 squeeze_leading_axis = lambda arr: arr[0] if (hasattr(arr, "shape") and arr.shape != () and arr.shape[0] == 1) else arr
                 state_for_obs = jax.tree_util.tree_map(squeeze_leading_axis, state)
                 map_arg = jax.device_put(self.road_np[0])
                 route_arg = jax.device_put(self.route_np[0])
+                tl_arg = jax.device_put(self.tl_np[0])
+                on_route_arg = jax.device_put(self.on_route_mask_np[0])
             else:
                 state_for_obs = state
                 map_arg = jax.device_put(self.road_np)
                 route_arg = jax.device_put(self.route_np)
-        data_dict, _ = self.get_obs_fn(state_for_obs, map_arg, route_arg, (80, 20))
+                tl_arg = jax.device_put(self.tl_np)
+                on_route_arg = jax.device_put(self.on_route_mask_np)
+        data_dict, _ = self.get_obs_fn(state_for_obs, map_arg, route_arg, tl_arg, on_route_arg, (50, 50))
         data_dict = jax.tree_util.tree_map(jax.device_get, data_dict)
         if not self._obs_uses_pmap and self.num_devices == 1:
             data_dict = {k: v[np.newaxis, ...] for k, v in data_dict.items()}
@@ -486,7 +493,9 @@ class WaymoEnv():
                 )
             map_i = slice_first_axis(self.road_np, dev_idx)
             route_i = slice_first_axis(self.route_np, dev_idx)
-            data_i, _ = get_obs_from_routeandmap_saved_jit(state_i, map_i, route_i, (80, 20))
+            tl_i = slice_first_axis(self.tl_np, dev_idx)
+            on_route_i = slice_first_axis(self.on_route_mask_np, dev_idx)
+            data_i, _ = get_obs_from_routeandmap_saved_jit(state_i, map_i, route_i, tl_i, on_route_i, (80, 20))
             data_list.append(jax.tree_util.tree_map(lambda arr: jax.device_get(arr), data_i))
 
         data_dict = jax.tree_util.tree_map(lambda *xs: np.stack(xs, axis=0), *data_list)
@@ -507,6 +516,8 @@ class WaymoEnv():
         self.states = [initial_state]
         cur_state = initial_state
         self.road_np, self.route_np, self.intention_label = get_cache_polylines_baseline(cur_state, self.path_to_map, self.path_to_route, self.metric.intention_label_path)
+        self.tl_np = get_cache_tl_status_baseline(cur_state, self.path_to_tl)
+        self.on_route_mask_np = get_cache_on_route_baseline(cur_state, self.path_to_map)
         self.metric.reset(self.intention_label)
         obs, obs_dict = self._compute_obs(cur_state)
 
@@ -534,10 +545,10 @@ class WaymoEnv():
         # (N,B,action_space)
         action = action.reshape(self.batch_dims[0],self.batch_dims[1], -1)
         # (N,action_space,B)
-        actions = np.transpose(action,(0,2,1))
+        actions = np.transpose(action, (0, 2, 1))
 
 
-        rewards,rew,next_state = self.env.pmap_sim(actions,current_state)
+        rewards, rew, next_state = self.env.pmap_sim(actions, current_state)
         obs, obs_dict = self._compute_obs(next_state)
         is_done = np.asarray(jax.device_get(next_state.is_done))
         is_done = is_done.reshape(-1)

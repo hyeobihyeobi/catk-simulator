@@ -143,7 +143,7 @@ class WaymoBaseEnv():
 
         return merged_rewards, merged_rew, merged_state
 
-    def simulate(self,actions:np.array,current_state: datatypes.SimulatorState):
+    def simulate(self, actions:np.array, current_state: datatypes.SimulatorState):
         outputs = [
             select_action({'actions':actions}, current_state, None, None)
             for select_action in self.select_action_list
