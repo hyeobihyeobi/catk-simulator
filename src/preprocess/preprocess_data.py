@@ -85,9 +85,9 @@ class Preprocessor(object):
         tl_status, tl_ids = get_tl_status(scen)
 
         # Extract route data
-        routes, ego_car_width = get_route_global(scen)
+        routes, ego_car_widths = get_route_global(scen)
         routes = np.array(routes)
-        ego_car_width = float(ego_car_width)
+        ego_car_widths = np.array(ego_car_widths)
 
         # Extract intention label data
         mask = scen.object_metadata.is_sdc
@@ -111,7 +111,7 @@ class Preprocessor(object):
                 # Route data
                 routes[bs:bs+1],
                 self.data_conf.max_route_segments,
-                ego_car_width,
+                float(ego_car_widths[bs]),
                 os.path.join(self.path_to_route, '{}'.format(cur_id[bs])),
                 # Intention label data
                 sdc_xy[bs],

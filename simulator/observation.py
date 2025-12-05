@@ -509,14 +509,14 @@ def _interpolate_polyline(points: jax.Array, t: int) -> jax.Array:
 
     return points_interp
 
-# get_obs_from_routeandmap_saved_pmap = jax.pmap(
-#     get_obs_from_routeandmap_saved,
-#     static_broadcasted_argnums=(5,),
-# )
-# get_obs_from_routeandmap_saved_jit = jax.jit(
-#     get_obs_from_routeandmap_saved,
-#     static_argnames=('vis_distance',),
-# )
+get_obs_from_routeandmap_saved_pmap = jax.pmap(
+    get_obs_from_routeandmap_saved,
+    static_broadcasted_argnums=(5,),
+)
+get_obs_from_routeandmap_saved_jit = jax.jit(
+    get_obs_from_routeandmap_saved,
+    static_argnames=('vis_distance',),
+)
 
-get_obs_from_routeandmap_saved_pmap = get_obs_from_routeandmap_saved
-get_obs_from_routeandmap_saved_jit = get_obs_from_routeandmap_saved
+# get_obs_from_routeandmap_saved_pmap = get_obs_from_routeandmap_saved
+# get_obs_from_routeandmap_saved_jit = get_obs_from_routeandmap_saved

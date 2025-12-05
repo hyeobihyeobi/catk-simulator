@@ -244,49 +244,51 @@ def get_traffic_light_obs_(tl_observation, tl_ids):
 
 @jax.jit
 def get_whole_map(state):
-    # print(state.roadgraph_points.shape)
-    _,B,P = state.roadgraph_points.shape
-    road_observation = jnp.concatenate(
-                        (state.roadgraph_points.xy.reshape(B,P,-1),
-                            # state.roadgraph_points.dir_xy[valid][mask],
-                            # state.roadgraph_points.dir_xy.reshape(B,P,-1),
-                            jnp.atan2(state.roadgraph_points.dir_x.reshape(B,P,-1), state.roadgraph_points.dir_y.reshape(B,P,-1)),
-                            state.roadgraph_points.types.reshape(B,P,1),
-                            # state.roadgraph_points.ids.reshape(-1,1)
-                            ),axis=-1)
-    ids = state.roadgraph_points.ids.reshape(B, P, -1)
+    batch_shape = state.roadgraph_points.types.shape[:-1]
+    P = state.roadgraph_points.types.shape[-1]
+    B = math.prod(batch_shape)
+
+    xy = state.roadgraph_points.xy.reshape(B, P, -1)
+    dir_yaw = jnp.atan2(
+        state.roadgraph_points.dir_x, state.roadgraph_points.dir_y
+    ).reshape(B, P, 1)
     types = state.roadgraph_points.types.reshape(B, P, 1)
+    ids = state.roadgraph_points.ids.reshape(B, P, 1)
+
+    road_observation = jnp.concatenate((xy, dir_yaw, types), axis=-1)
+
     # Keep only selected types (1, 2, 18) and zero out others across all tensors.
     keep_mask = jnp.isin(types.squeeze(-1), jnp.array([1, 2, 18]))
-    keep_mask_exp = keep_mask[..., None]
-    road_observation = road_observation * keep_mask_exp
-    ids = ids * keep_mask_exp
-    # Build on-route mask using sdc_paths if available.
-    on_route_mask = jnp.zeros_like(ids, dtype=bool)
-    if getattr(state, "sdc_paths", None) is not None and state.sdc_paths is not None:
-        path_ids = state.sdc_paths.ids
-        path_on_route = state.sdc_paths.on_route
-        # Flatten leading device axis.
-        if path_ids.ndim == 4:
-            path_ids = path_ids.reshape(B, path_ids.shape[2], path_ids.shape[3])
-            path_on_route = path_on_route.reshape(B, path_on_route.shape[2], path_on_route.shape[3])
-        path_on_route = path_on_route.squeeze(-1).astype(bool)  # (B, num_paths)
+    road_observation = road_observation * keep_mask[..., None]
+    ids = ids * keep_mask[..., None]
 
-        def mask_batch(road_ids_b, ids_b, on_route_b):
-            selected = jnp.where(on_route_b[:, None], ids_b, -1)  # (num_paths, num_pts)
+    # Build on-route mask using sdc_paths if available.
+    on_route_mask = jnp.zeros((B, P), dtype=bool)
+    if getattr(state, "sdc_paths", None) is not None and state.sdc_paths is not None:
+        path_ids = state.sdc_paths.ids.reshape(
+            B, *state.sdc_paths.ids.shape[-2:]
+        )  # (B, num_paths, num_points_per_path)
+        path_on_route = state.sdc_paths.on_route.reshape(
+            B, *state.sdc_paths.on_route.shape[-2:]
+        ).squeeze(-1).astype(bool)  # (B, num_paths)
+
+        def mask_batch(road_ids_b, path_ids_b, on_route_b):
+            selected = jnp.where(on_route_b[:, None], path_ids_b, -1)
             road_flat = road_ids_b.reshape(-1, 1)
             selected_flat = selected.reshape(1, -1)
-            return (road_flat == selected_flat).any(-1).reshape(road_ids_b.shape)
+            return (road_flat == selected_flat).any(-1)
 
-        on_route_mask = jax.vmap(mask_batch)(ids, path_ids, path_on_route)
-    # Apply keep mask to on_route_mask
-    on_route_mask = on_route_mask * keep_mask_exp
+        on_route_mask = jax.vmap(mask_batch)(ids.squeeze(-1), path_ids, path_on_route)
+
+    on_route_mask = (on_route_mask & keep_mask).reshape(B, P, 1)
 #     DebugVisualisation().plot_map_jax(state.roadgraph_points.xy.reshape(1, B, P, -1), ids=ids, types=state.roadgraph_points.types.reshape(B, P, 1), batch_idx=0)
     return road_observation, ids, on_route_mask
 
 @jax.jit
 def get_tl_status(state):
-    _, B, TL, T = state.log_traffic_light.state.shape
+    batch_shape = state.log_traffic_light.state.shape[:-2]
+    TL, T = state.log_traffic_light.state.shape[-2:]
+    B = math.prod(batch_shape)
     tl_observation = jnp.concatenate(
                         (state.log_traffic_light.state.reshape(B, TL, T, -1),
                             state.log_traffic_light.xy.reshape(B, TL, T, -1)
@@ -296,9 +298,13 @@ def get_tl_status(state):
 
 @jax.jit
 def get_route_global(state):
-    _,B,P = state.roadgraph_points.shape
-    _, sdc_idx = jax.lax.top_k(state.object_metadata.is_sdc, k=1)
-    routes = state.log_trajectory.xy[:,jnp.linspace(0,B-1,B).astype(jnp.int32),sdc_idx.reshape(-1),...]
-    ego_car_width = state.log_trajectory.width[:,jnp.linspace(0,B-1,B).astype(jnp.int32),sdc_idx.reshape(-1),...][-1,-1,-1]
-    return routes.reshape(B,routes.shape[-2],routes.shape[-1]),\
-        ego_car_width
+    batch_shape = state.object_metadata.is_sdc.shape[:-1]
+    B = math.prod(batch_shape)
+
+    sdc_idx = jnp.argmax(state.object_metadata.is_sdc, axis=-1).reshape(-1)
+    routes = state.log_trajectory.xy.reshape(B, *state.log_trajectory.xy.shape[-3:])
+    widths = state.log_trajectory.width.reshape(B, *state.log_trajectory.width.shape[-2:])
+
+    routes = routes[jnp.arange(B), sdc_idx, ...]
+    ego_car_width = widths[jnp.arange(B), sdc_idx, 0]
+    return routes, ego_car_width
