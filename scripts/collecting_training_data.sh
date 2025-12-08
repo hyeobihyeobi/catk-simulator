@@ -47,7 +47,7 @@ fi
 
 
 python src/preprocess/saving_training_data.py \
-    ++batch_dims=[${DEVICE_COUNT},25] \
+    ++batch_dims=[${DEVICE_COUNT},128] \
     ++waymax_conf.drop_remainder=True \
     ++waymax_conf.path="${WOMD_VAL_PATH}" \
     ++data_conf.path_to_processed_map_route="${PRE_PROCESS_VAL_PATH}" \

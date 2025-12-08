@@ -126,6 +126,25 @@ def get_vehicle_obs(sdc_obs, timestep):
     length = sdc_obs.trajectory.length[...,:,:timestep,jnp.newaxis] * valid_mask
     vehicle_obs = jnp.concatenate([xy, width, length, yaw, vel_xy, acc_xy, valid_mask], axis=-1)
     return vehicle_obs
+
+def get_vehicle_gt_obs(sdc_obs):
+    # modified for time-step
+    # sdc_obs.trajectory.xy.shape [num_gpus,bs,objs,timesteps,2]
+    valid_mask = sdc_obs.trajectory.valid[..., jnp.newaxis]
+    xy = sdc_obs.trajectory.xy * valid_mask
+    # speed [objs,1]
+#     speed = sdc_obs.trajectory.speed[...,:,:,jnp.newaxis] * valid_mask
+    vel_xy = sdc_obs.trajectory.vel_xy * valid_mask
+
+    acc_xy = jnp.diff(vel_xy, axis=-2, prepend=vel_xy[..., :1, :]) / TIME_INTERVAL
+    acc_xy = acc_xy * valid_mask
+    # yaw [objs,1]
+    yaw = sdc_obs.trajectory.yaw[..., jnp.newaxis] * 180 / np.pi * valid_mask
+    width = sdc_obs.trajectory.width[..., jnp.newaxis] * valid_mask
+    length = sdc_obs.trajectory.length[..., jnp.newaxis] * valid_mask
+    vehicle_obs = jnp.concatenate([xy, width, length, yaw, vel_xy, acc_xy, valid_mask], axis=-1)
+    return vehicle_obs
+
 def downsampled_elements_transformation(elements,
                                         pose_global2ego,
                                         sdc_yaw,):
@@ -207,8 +226,8 @@ def get_obs_from_routeandmap_saved(
         # type_array[padding_mask] *= 0
         type_array = jnp.where(padding_mask[...,jnp.newaxis], 0, type_array)
         return type_array
-    # whole_map (bs, max_segs, 6)
-    B,P = state.roadgraph_points.shape
+    # whole_map (bs, max_segs, 6); state.roadgraph_points can carry extra leading axes (e.g., device, batch)
+#     B,P = state.roadgraph_points.shape
     # Select the XY position at the current timestep.
     # Shape: (..., num_agents, 2)
     # obj_xy = state.current_sim_trajectory.xy[..., 0, :]
@@ -234,6 +253,15 @@ def get_obs_from_routeandmap_saved(
     global_obs_filter = global_obs.replace(
         is_ego=is_ego,
     )
+    # Future ground-truth: slice from `time_step` onward.
+    total_steps = state.sim_trajectory.xy.shape[-2]
+    gt_obs_steps = max(total_steps - time_step, 0)
+    global_gt_obs = observation.global_observation_from_state(
+        state, obs_num_steps=gt_obs_steps, num_obj=num_obj
+    )
+    global_gt_obs_filter = global_gt_obs.replace(
+        is_ego=is_ego,
+    )
 
 
     pose2d = observation.ObjectPose2D.from_center_and_yaw(
@@ -241,6 +269,7 @@ def get_obs_from_routeandmap_saved(
     )
     chex.assert_equal(pose2d.shape, state.shape + (1,))
     sdc_obs = observation.transform_observation(global_obs_filter, pose2d)
+    sdc_gt_obs = observation.transform_observation(global_gt_obs_filter, pose2d)
     pose_global2ego = observation.combine_two_object_pose_2d(src_pose=global_obs_filter.pose2d, dst_pose=pose2d)
     # for roadgraph
     whole_map_shape = whole_map.shape
@@ -300,7 +329,7 @@ def get_obs_from_routeandmap_saved(
 
     # for vehicle
     vehicle_sgements = get_vehicle_obs(sdc_obs,time_step)
-    vehicle_gt_sgements = get_vehicle_obs(sdc_obs,-1)
+    vehicle_gt_sgements = get_vehicle_gt_obs(sdc_gt_obs)
     cur_vehicle_sgements = vehicle_sgements[...,-1,:]
 
     veh_segs, vehicle_exceed_masks = padding_exceed(cur_vehicle_sgements, dis=ROI_wh)
@@ -318,13 +347,19 @@ def get_obs_from_routeandmap_saved(
     his_veh_trajs = jnp.where(vehicle_exceed_masks[...,jnp.newaxis,jnp.newaxis],0,his_veh_trajs).reshape((-1,)+his_veh_trajs.shape[2:])
     veh_gt_trajs = jnp.where(vehicle_exceed_masks[...,jnp.newaxis,jnp.newaxis],0,veh_gt_trajs).reshape((-1,)+veh_gt_trajs.shape[2:])
 
-    veh_gt_trajs = veh_gt_trajs[..., -time_step:, :]
+    veh_gt_trajs = veh_gt_trajs
     flat_env = veh_gt_trajs.shape[0]
+    num_agents = veh_gt_trajs.shape[1]
     flat_sdc_idx = sdc_idx.reshape(-1)
     sdc_gt_traj = veh_gt_trajs[jnp.arange(flat_env), flat_sdc_idx]
-    agent_mask = jnp.ones(veh_gt_trajs.shape[:2], dtype=bool)
-    agent_mask = agent_mask.at[jnp.arange(flat_env), flat_sdc_idx].set(False)
-    agent_gt_traj = veh_gt_trajs[agent_mask].reshape(flat_env, -1, veh_gt_trajs.shape[2], veh_gt_trajs.shape[3])
+    # Move the SDC to the last position and drop it to avoid boolean indexing under JAX transforms.
+    base_idx = jnp.broadcast_to(jnp.arange(num_agents), (flat_env, num_agents))
+    sdc_masked = jnp.where(base_idx == flat_sdc_idx[:, None], num_agents + 1, base_idx)
+    sorted_idx = jnp.sort(sdc_masked, axis=1)
+    agent_indices = sorted_idx[:, :-1]
+    agent_gt_traj = jnp.take_along_axis(
+        veh_gt_trajs, agent_indices[..., None, None], axis=1
+    )
 
 #     DebugVisualisation().plot_map_jax(
 #         whole_map_roi[..., :2],
@@ -452,7 +487,7 @@ def get_obs_from_routeandmap_saved(
 #         roadgraph_obs=type_roadobs,
         roadgraph_obs=roadgraph_obs,
         his_veh_trajs = his_veh_trajs,
-        veh_gt_trajs = veh_gt_trajs,
+#         veh_gt_trajs = veh_gt_trajs,
         sdc_gt_traj = sdc_gt_traj,
         agent_gt_traj = agent_gt_traj,
         point_on_route = point_on_route,
@@ -534,14 +569,14 @@ def _interpolate_polyline(points: jax.Array, t: int) -> jax.Array:
 
     return points_interp
 
-# get_obs_from_routeandmap_saved_pmap = jax.pmap(
-#     get_obs_from_routeandmap_saved,
-#     static_broadcasted_argnums=(5,),
-# )
-# get_obs_from_routeandmap_saved_jit = jax.jit(
-#     get_obs_from_routeandmap_saved,
-#     static_argnames=('vis_distance',),
-# )
+get_obs_from_routeandmap_saved_pmap = jax.pmap(
+    get_obs_from_routeandmap_saved,
+    static_broadcasted_argnums=(5,),
+)
+get_obs_from_routeandmap_saved_jit = jax.jit(
+    get_obs_from_routeandmap_saved,
+    static_argnums=(5,),
+)
 
-get_obs_from_routeandmap_saved_pmap = get_obs_from_routeandmap_saved
-get_obs_from_routeandmap_saved_jit = get_obs_from_routeandmap_saved
+# get_obs_from_routeandmap_saved_pmap = get_obs_from_routeandmap_saved
+# get_obs_from_routeandmap_saved_jit = get_obs_from_routeandmap_saved
