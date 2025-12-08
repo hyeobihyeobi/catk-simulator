@@ -14,7 +14,7 @@ fi
 BATCH_DIMS="${BATCH_DIMS:-[4,32]}"
 DROP_REMAINDER="${DROP_REMAINDER:-True}"
 
-# for vaildation
+# for validation
 # python -m src.preprocess.preprocess_data \
 #     ++batch_dims=${BATCH_DIMS} \
 #     ++waymax_conf.path="${WOMD_VAL_PATH}" \
