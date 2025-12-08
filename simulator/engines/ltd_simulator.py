@@ -22,7 +22,7 @@ class LTDSimulator(BaseSimulator):
                         [f.to(self.device) for j in range(len(reference_lines[k])) for f in reference_lines[k][j]], batch_first=True
                     )
                     for k in reference_lines.keys()
-                }
+                } if reference_lines is not None else None
 
                 # import matplotlib.pyplot as plt
                 # for li, lane in enumerate(reference_lines["position"][2]):
@@ -86,7 +86,7 @@ class LTDSimulator(BaseSimulator):
                             [f.to(self.device) for j in range(len(reference_lines[k])) for f in reference_lines[k][j]], batch_first=True
                         )
                         for k in reference_lines.keys()
-                    }
+                    } if reference_lines is not None else None
 
                     actions = np.concatenate([actions,action[:,np.newaxis,...]],axis=1)
                     # actions[:, -1] = action

@@ -111,69 +111,51 @@ class TrainingDataCollector():
                 rewards = []
                 done_ = False
 
-                sdc_gt_raw = obs_dict.get('sdc_gt_traj', None)
-                agent_gt_raw = obs_dict.get('agent_gt_traj', None)
-                sdc_gt_formatted = self._merge_devices(sdc_gt_raw) if sdc_gt_raw is not None else None
-                agent_gt_formatted = self._merge_devices(agent_gt_raw) if agent_gt_raw is not None else None
+                while not done_:
+                    actions_to_collect = self.collect_actions(self.env.states[-1])
+                    actions_bicycle.append(actions_to_collect['bicycle_actions'])
+                    actions_waypoints.append(actions_to_collect['waypoints_actions'])
 
-#                 while not done_:
-#                     actions_to_collect = self.collect_actions(self.env.states[-1])
-#                     actions_bicycle.append(actions_to_collect['bicycle_actions'])
-#                     actions_waypoints.append(actions_to_collect['waypoints_actions'])
-# 
-#                     obs, obs_dict, rew, done, info, reference_lines = self.env.step(
-#                         self.env.get_expert_action(), show_global=False
-#                     )
-#                     rewards.append(rew.reshape(self.env.num_envs, 1))
-# 
-#                     obs_formatted = self._format_obs(obs)
-#                     for k in obs_seq:
-#                         obs_seq[k].append(obs_formatted[k])
-# 
-#                     # ref_formatted = self._format_reference_lines(reference_lines)
-#                     # for k in ref_seq:
-#                     #     ref_seq[k].append(ref_formatted.get(k, np.zeros_like(ref_seq[k][0])))
-# 
-#                     done_ = done[-1]
-# 
-#                 obs_stacked = {k: np.stack(v, axis=1) for k, v in obs_seq.items()}
-#                 # ref_stacked = {k: np.stack(v, axis=1) for k, v in ref_seq.items()} if ref_seq else {}
-#                 actions_bicycle = (
-#                     np.stack(actions_bicycle, axis=1) if actions_bicycle else np.zeros((self.env.num_envs, 0, 2))
-#                 )
-#                 actions_waypoints = (
-#                     np.stack(actions_waypoints, axis=1) if actions_waypoints else np.zeros((self.env.num_envs, 0, 3))
-#                 )
-#                 rewards = np.stack(rewards, axis=1) if rewards else np.zeros((self.env.num_envs, 0, 1))
-# 
-#                 time_horizon = next(iter(obs_stacked.values())).shape[1]
-#                 terminals = np.zeros(time_horizon, dtype=np.int32)
-#                 terminals[-1] = 1
-# 
-#                 for ii in range(self.env.num_envs):
-#                     scen_id = str(self.env.get_env_idx(ii))
-#                     sub_folder = os.path.join(self.save_path, 'data')
-#                     os.makedirs(sub_folder, exist_ok=True)
-#                     traj = {
-#                         'obs': {k: v[ii] for k, v in obs_stacked.items()},
-#                         # 'reference_lines': {k: v[ii] for k, v in ref_stacked.items()},
-#                         'waypoints_actions': actions_waypoints[ii],
-#                         'bicycle_actions': actions_bicycle[ii],
-#                         'rewards': rewards[ii],
-#                         'terminals': terminals,
-#                     }
-#                     saving_data(traj, name=os.path.join(sub_folder, scen_id))
-#                     with open(os.path.join(self.save_path, 'name.txt'), 'a') as f:
-#                         f.write(f'{scen_id}\n')
+                    obs, obs_dict, rew, done, info, reference_lines = self.env.step(
+                        self.env.get_expert_action(), show_global=False
+                    )
+                    rewards.append(rew.reshape(self.env.num_envs, 1))
 
-                sub_folder = os.path.join(self.save_path, 'data')
-                os.makedirs(sub_folder, exist_ok=True)
+                    obs_formatted = self._format_obs(obs)
+                    for k in obs_seq:
+                        obs_seq[k].append(obs_formatted[k])
+
+                    # ref_formatted = self._format_reference_lines(reference_lines)
+                    # for k in ref_seq:
+                    #     ref_seq[k].append(ref_formatted.get(k, np.zeros_like(ref_seq[k][0])))
+
+                    done_ = done[-1]
+
+                obs_stacked = {k: np.stack(v, axis=1) for k, v in obs_seq.items()}
+                # ref_stacked = {k: np.stack(v, axis=1) for k, v in ref_seq.items()} if ref_seq else {}
+                actions_bicycle = (
+                    np.stack(actions_bicycle, axis=1) if actions_bicycle else np.zeros((self.env.num_envs, 0, 2))
+                )
+                actions_waypoints = (
+                    np.stack(actions_waypoints, axis=1) if actions_waypoints else np.zeros((self.env.num_envs, 0, 3))
+                )
+                rewards = np.stack(rewards, axis=1) if rewards else np.zeros((self.env.num_envs, 0, 1))
+
+                time_horizon = next(iter(obs_stacked.values())).shape[1]
+                terminals = np.zeros(time_horizon, dtype=np.int32)
+                terminals[-1] = 1
+
                 for ii in range(self.env.num_envs):
                     scen_id = str(self.env.get_env_idx(ii))
+                    sub_folder = os.path.join(self.save_path, 'data')
+                    os.makedirs(sub_folder, exist_ok=True)
                     traj = {
-                        'obs': {k: v[ii] for k, v in obs_formatted.items()},
-                        'sdc_gt': None if sdc_gt_formatted is None else sdc_gt_formatted[ii],
-                        'agent_gt': None if agent_gt_formatted is None else agent_gt_formatted[ii],
+                        'obs': {k: v[ii] for k, v in obs_stacked.items()},
+                        # 'reference_lines': {k: v[ii] for k, v in ref_stacked.items()},
+                        'waypoints_actions': actions_waypoints[ii],
+                        'bicycle_actions': actions_bicycle[ii],
+                        'rewards': rewards[ii],
+                        'terminals': terminals,
                     }
                     saving_data(traj, name=os.path.join(sub_folder, scen_id))
                     with open(os.path.join(self.save_path, 'name.txt'), 'a') as f:
@@ -220,12 +202,12 @@ def run(cfg):
     collector.run()
 
 if __name__ == '__main__':
-    message="SNU Ubuntu :\nSomething Went Wrong! (code exit with error)".encode(encoding='utf-8')
+    message="Tail17 :\nSomething Went Wrong! (code exit with error)".encode(encoding='utf-8')
     try:
         run()
-        message="SNU Ubuntu :\nPreprocessing done successful".encode(encoding='utf-8')
+        message="Tail17 :\nPreprocessing done successful".encode(encoding='utf-8')
     except Exception as e:
-        message=f"SNU Ubuntu :\nPreprocessing failed with error: {e}".encode(encoding='utf-8')
+        message=f"Tail17 :\nPreprocessing failed with error: {e}".encode(encoding='utf-8')
         raise e
     finally:
         requests.post("https://ntfy.sh/shnamtopic", data=message)

@@ -557,7 +557,7 @@ class WaymoEnv():
 
 #         DebugVisualisation().plot_map(obs_dict['roadgraph_obs'], obs_dict['route_segments'])
 
-        # reference_lines = get_reference_line(next_state)
+#         reference_lines = get_reference_line(next_state)
         reference_lines = None
         done = np.repeat(is_done, self.batch_dims[-1]).astype(bool)
         self.states.append(next_state)

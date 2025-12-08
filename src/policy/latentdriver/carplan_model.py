@@ -675,7 +675,28 @@ class CarPLAN(pl.LightningModule):
         sampled_paths: list[list[torch.Tensor]] = []
         sampled_types: list[list[torch.Tensor]] = []
         sampled_ids: list[list[torch.Tensor]] = []
+        sampled_on_route: list[list[torch.Tensor]] = []
+        sampled_tl_status: list[list[torch.Tensor]] = []
+        sampled_speed_limit: list[list[torch.Tensor]] = []
+        sampled_has_speed_limit: list[list[torch.Tensor]] = []
         max_paths = 0
+
+        point_on_route_raw = _to_torch(ss.get("point_on_route", torch.zeros_like(ids_arr, dtype=torch.bool)))
+        point_tl_status_raw = _to_torch(ss.get("point_tl_status", torch.zeros_like(ids_arr)))
+        point_speed_limit_raw = _to_torch(ss.get("point_speed_limit", torch.zeros_like(ids_arr)))
+        point_has_speed_limit_raw = _to_torch(ss.get("point_has_speed_limit", torch.zeros_like(ids_arr, dtype=torch.bool)))
+
+        def _reshape_points(arr, dtype=None):
+            if dtype is not None and arr.dtype != dtype:
+                arr = arr.to(dtype)
+            if arr.dim() > 2:
+                return arr.reshape(road_obs_arr.shape[0], road_obs_arr.shape[1])
+            return arr
+
+        point_on_route = _reshape_points(point_on_route_raw, dtype=torch.bool)
+        point_tl_status = _reshape_points(point_tl_status_raw)
+        point_speed_limit = _reshape_points(point_speed_limit_raw)
+        point_has_speed_limit = _reshape_points(point_has_speed_limit_raw, dtype=torch.bool)
 
         for b in range(road_obs_arr.shape[0]):
     #         valid_points = road_obs_arr[b][jnp.where(valid_mask[b])[0]]
@@ -690,13 +711,38 @@ class CarPLAN(pl.LightningModule):
                 ids_arr[b],
                 torch.full_like(ids_arr[b], -1),
             )
+            valid_on_route = torch.where(
+                valid_mask[b],
+                point_on_route[b] if point_on_route.numel() else torch.zeros_like(valid_ids, dtype=torch.bool),
+                torch.zeros_like(valid_ids, dtype=torch.bool),
+            )
+            valid_tl_status = torch.where(
+                valid_mask[b],
+                point_tl_status[b] if point_tl_status.numel() else torch.zeros_like(valid_ids),
+                torch.zeros_like(valid_ids),
+            )
+            valid_speed_limit = torch.where(
+                valid_mask[b],
+                point_speed_limit[b] if point_speed_limit.numel() else torch.zeros_like(valid_ids, dtype=road_obs_arr.dtype),
+                torch.zeros_like(valid_ids, dtype=road_obs_arr.dtype),
+            )
+            valid_has_speed_limit = torch.where(
+                valid_mask[b],
+                point_has_speed_limit[b] if point_has_speed_limit.numel() else torch.zeros_like(valid_ids, dtype=torch.bool),
+                torch.zeros_like(valid_ids, dtype=torch.bool),
+            )
             batch_paths = []
             batch_types = []
             batch_ids = []
+            batch_on_route = []
+            batch_tl_status = []
+            batch_speed_limit = []
+            batch_has_speed_limit = []
             for uid in torch.unique(valid_ids[valid_ids >= 0]):
                 pts = valid_points[valid_ids == uid]
                 if pts.shape[0] < 2:
                     continue
+                uid_mask = valid_ids == uid
                 path_xyz = torch.cat(
                     [
                         pts[:, :2],
@@ -715,13 +761,30 @@ class CarPLAN(pl.LightningModule):
                 )
                 batch_types.append(torch.full((sample_points,), type_val, device=pts.device, dtype=sampled.dtype))
                 batch_ids.append(torch.full((sample_points,), uid, device=pts.device, dtype=torch.long))
+                # Aggregate scalar attributes per polyline.
+                on_route_val = valid_on_route[uid_mask].any() if valid_on_route.numel() else torch.zeros((), device=pts.device, dtype=torch.bool)
+                tl_status_val = valid_tl_status[uid_mask].max() if valid_tl_status.numel() else torch.zeros((), device=pts.device, dtype=valid_tl_status.dtype)
+                speed_limit_val = valid_speed_limit[uid_mask].max() if valid_speed_limit.numel() else torch.zeros((), device=pts.device, dtype=road_obs_arr.dtype)
+                has_speed_limit_val = valid_has_speed_limit[uid_mask].any() if valid_has_speed_limit.numel() else torch.zeros((), device=pts.device, dtype=torch.bool)
+                batch_on_route.append(on_route_val)
+                batch_tl_status.append(tl_status_val)
+                batch_speed_limit.append(speed_limit_val)
+                batch_has_speed_limit.append(has_speed_limit_val)
             max_paths = max(max_paths, len(batch_paths))
             sampled_paths.append(batch_paths)
             sampled_types.append(batch_types)
             sampled_ids.append(batch_ids)
+            sampled_on_route.append(batch_on_route)
+            sampled_tl_status.append(batch_tl_status)
+            sampled_speed_limit.append(batch_speed_limit)
+            sampled_has_speed_limit.append(batch_has_speed_limit)
         padded_paths = []
         padded_types = []
         padded_ids = []
+        padded_on_route = []
+        padded_tl_status = []
+        padded_speed_limit = []
+        padded_has_speed_limit = []
         for paths, types, ids_list in zip(sampled_paths, sampled_types, sampled_ids):
             if len(paths) < max_paths:
                 paths = paths + [torch.zeros((sample_points, 3), device=road_obs_arr.device, dtype=road_obs_arr.dtype)] * (max_paths - len(paths))
@@ -730,15 +793,34 @@ class CarPLAN(pl.LightningModule):
             padded_paths.append(torch.stack(paths, dim=0) if paths else torch.zeros((0, sample_points, 3), device=road_obs_arr.device, dtype=road_obs_arr.dtype))
             padded_types.append(torch.stack(types, dim=0) if types else torch.zeros((0, sample_points), device=road_obs_arr.device, dtype=road_obs_arr.dtype))
             padded_ids.append(torch.stack(ids_list, dim=0) if ids_list else torch.zeros((0, sample_points), device=road_obs_arr.device, dtype=torch.long))
+        for on_route_list, tl_list, spd_list, has_spd_list in zip(sampled_on_route, sampled_tl_status, sampled_speed_limit, sampled_has_speed_limit):
+            if len(on_route_list) < max_paths:
+                pad_len = max_paths - len(on_route_list)
+                on_route_list = on_route_list + [torch.zeros((), device=road_obs_arr.device, dtype=torch.bool)] * pad_len
+                tl_list = tl_list + [torch.zeros((), device=road_obs_arr.device, dtype=road_obs_arr.dtype)] * pad_len
+                spd_list = spd_list + [torch.zeros((), device=road_obs_arr.device, dtype=road_obs_arr.dtype)] * pad_len
+                has_spd_list = has_spd_list + [torch.zeros((), device=road_obs_arr.device, dtype=torch.bool)] * pad_len
+            padded_on_route.append(torch.stack(on_route_list, dim=0) if on_route_list else torch.zeros((0,), device=road_obs_arr.device, dtype=torch.bool))
+            padded_tl_status.append(torch.stack(tl_list, dim=0) if tl_list else torch.zeros((0,), device=road_obs_arr.device, dtype=road_obs_arr.dtype))
+            padded_speed_limit.append(torch.stack(spd_list, dim=0) if spd_list else torch.zeros((0,), device=road_obs_arr.device, dtype=road_obs_arr.dtype))
+            padded_has_speed_limit.append(torch.stack(has_spd_list, dim=0) if has_spd_list else torch.zeros((0,), device=road_obs_arr.device, dtype=torch.bool))
 
         if len(padded_paths) > 0:
             roadgraph_sampled = torch.stack(padded_paths, dim=0)
             roadgraph_sampled_type = torch.stack(padded_types, dim=0)
             roadgraph_sampled_id = torch.stack(padded_ids, dim=0)
+            polygon_on_route_vals = torch.stack(padded_on_route, dim=0)
+            polygon_tl_status_vals = torch.stack(padded_tl_status, dim=0)
+            polygon_speed_limit_vals = torch.stack(padded_speed_limit, dim=0)
+            polygon_has_speed_limit_vals = torch.stack(padded_has_speed_limit, dim=0)
         else:
             roadgraph_sampled = torch.zeros((road_obs_arr.shape[0], 0, sample_points, 3), device=road_obs_arr.device, dtype=road_obs_arr.dtype)
             roadgraph_sampled_type = torch.zeros((road_obs_arr.shape[0], 0, sample_points), device=road_obs_arr.device, dtype=road_obs_arr.dtype)
             roadgraph_sampled_id = torch.zeros((road_obs_arr.shape[0], 0, sample_points), device=road_obs_arr.device, dtype=torch.long)
+            polygon_on_route_vals = torch.zeros((road_obs_arr.shape[0], 0), device=road_obs_arr.device, dtype=torch.bool)
+            polygon_tl_status_vals = torch.zeros((road_obs_arr.shape[0], 0), device=road_obs_arr.device, dtype=road_obs_arr.dtype)
+            polygon_speed_limit_vals = torch.zeros((road_obs_arr.shape[0], 0), device=road_obs_arr.device, dtype=road_obs_arr.dtype)
+            polygon_has_speed_limit_vals = torch.zeros((road_obs_arr.shape[0], 0), device=road_obs_arr.device, dtype=torch.bool)
 
         B, M, P = roadgraph_sampled.shape[0], roadgraph_sampled.shape[1], sample_points
         point_position = roadgraph_sampled[..., :2].unsqueeze(2)  # (B, M, 1, P, 2)
@@ -752,10 +834,10 @@ class CarPLAN(pl.LightningModule):
         polygon_position = roadgraph_sampled[..., 0, :2]
         polygon_orientation = roadgraph_sampled[..., 0, 2:3]
         polygon_type = roadgraph_sampled_type[..., 0] if roadgraph_sampled_type.numel() else torch.zeros((B, M), device=road_obs_arr.device, dtype=road_obs_arr.dtype)
-        polygon_on_route = _to_torch(ss.get("polygon_on_route", torch.zeros((B, M), device=road_obs_arr.device, dtype=torch.long)))
-        polygon_tl_status = _to_torch(ss.get("polygon_tl_status", torch.zeros((B, M), device=road_obs_arr.device, dtype=torch.long)))
-        polygon_speed_limit = _to_torch(ss.get("polygon_speed_limit", torch.zeros((B, M), device=road_obs_arr.device, dtype=road_obs_arr.dtype)))
-        polygon_has_speed_limit = _to_torch(ss.get("polygon_has_speed_limit", torch.zeros((B, M), device=road_obs_arr.device, dtype=torch.bool)))
+        polygon_on_route = polygon_on_route_vals
+        polygon_tl_status = polygon_tl_status_vals
+        polygon_speed_limit = polygon_speed_limit_vals
+        polygon_has_speed_limit = polygon_has_speed_limit_vals
         polygon_road_block_id = roadgraph_sampled_id[..., 0] if roadgraph_sampled_id.numel() else torch.zeros((B, M), device=road_obs_arr.device, dtype=torch.long)
         valid_mask = torch.any(roadgraph_sampled.abs().sum(dim=-1) != 0, dim=-1)
         # Align map_valid_mask to the sampled roadgraph shape (B, M, P) so downstream code can use the same masking.
@@ -883,14 +965,23 @@ class CarPLAN(pl.LightningModule):
         padding_mask = None
 
         for bs in range(num_envs):
-            for ref_idx, ref_lines in enumerate(reference_lines["position"][bs]):
-                ref_valid_mask = reference_lines["valid_mask"][bs, ref_idx]
-                ref_lines_valid = ref_lines[ref_valid_mask]
-                diffs = ref_lines_valid[1:] - ref_lines_valid[:-1]           # (N-1, 2)
-                dists = torch.norm(diffs, dim=1)             # 각 구간 거리
-                total_length = dists.sum()
-                if total_length > 120:
-                    reference_lines["valid_mask"][bs, ref_idx] = False
+            if reference_lines is not None:
+                for ref_idx, ref_lines in enumerate(reference_lines["position"][bs]):
+                    ref_valid_mask = reference_lines["valid_mask"][bs, ref_idx]
+                    ref_lines_valid = ref_lines[ref_valid_mask]
+                    diffs = ref_lines_valid[1:] - ref_lines_valid[:-1]           # (N-1, 2)
+                    dists = torch.norm(diffs, dim=1)             # 각 구간 거리
+                    total_length = dists.sum()
+                    if total_length > 120:
+                        reference_lines["valid_mask"][bs, ref_idx] = False
+            else:
+                reference_lines = {
+                    "position": torch.zeros((1, 0, 80, 2), device=self.device),
+                    "vector": torch.zeros((1, 0, 80, 2), device=self.device),
+                    "orientation": torch.zeros((1, 0, 80), device=self.device),
+                    "valid_mask": torch.zeros((1, 0), dtype=torch.bool, device=self.device),
+                    "future_projection": torch.zeros((1, 0, 3), device=self.device),
+                }
 
         _, action, _, _ = self.forward(
             states,

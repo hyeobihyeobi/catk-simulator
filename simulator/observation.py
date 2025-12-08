@@ -300,6 +300,7 @@ def get_obs_from_routeandmap_saved(
 
     # for vehicle
     vehicle_sgements = get_vehicle_obs(sdc_obs,time_step)
+    vehicle_gt_sgements = get_vehicle_obs(sdc_obs,-1)
     cur_vehicle_sgements = vehicle_sgements[...,-1,:]
 
     veh_segs, vehicle_exceed_masks = padding_exceed(cur_vehicle_sgements, dis=ROI_wh)
@@ -307,6 +308,7 @@ def get_obs_from_routeandmap_saved(
     # for other agents trajs
     # (bs,num_objs,time_step-1,6)
     his_veh_trajs = vehicle_sgements[...,:-1,:]
+    veh_gt_trajs = vehicle_gt_sgements[...,:-1,:]
     his_types = jnp.ones(his_veh_trajs.shape[:-1])[...,jnp.newaxis] * 2
     his_veh_trajs = jnp.concatenate([his_types, his_veh_trajs], axis=-1)
     # set sdc to false
@@ -314,6 +316,15 @@ def get_obs_from_routeandmap_saved(
                             jnp.linspace(0,B-1,B).astype(int),
                             sdc_idx.reshape(-1)].set(False)
     his_veh_trajs = jnp.where(vehicle_exceed_masks[...,jnp.newaxis,jnp.newaxis],0,his_veh_trajs).reshape((-1,)+his_veh_trajs.shape[2:])
+    veh_gt_trajs = jnp.where(vehicle_exceed_masks[...,jnp.newaxis,jnp.newaxis],0,veh_gt_trajs).reshape((-1,)+veh_gt_trajs.shape[2:])
+
+    veh_gt_trajs = veh_gt_trajs[..., -time_step:, :]
+    flat_env = veh_gt_trajs.shape[0]
+    flat_sdc_idx = sdc_idx.reshape(-1)
+    sdc_gt_traj = veh_gt_trajs[jnp.arange(flat_env), flat_sdc_idx]
+    agent_mask = jnp.ones(veh_gt_trajs.shape[:2], dtype=bool)
+    agent_mask = agent_mask.at[jnp.arange(flat_env), flat_sdc_idx].set(False)
+    agent_gt_traj = veh_gt_trajs[agent_mask].reshape(flat_env, -1, veh_gt_trajs.shape[2], veh_gt_trajs.shape[3])
 
 #     DebugVisualisation().plot_map_jax(
 #         whole_map_roi[..., :2],
@@ -335,7 +346,10 @@ def get_obs_from_routeandmap_saved(
     type_route_seg = add_type_and_reset_padding(route_obs, 1)
 
     # Map traffic light status to roadgraph points by matching IDs.
-    tl_array = jnp.array(tl_status)
+    tl_array = jnp.array(state["log_traffic_light"].state)
+    # Align traffic light time axis with the history horizon used for vehicles.
+    if tl_array.ndim >= 3:
+        tl_array = tl_array[..., :time_step]
     if tl_array.ndim == 2:
         tl_array = tl_array[jnp.newaxis, ...]
     # valid tl rows: non-zero
@@ -438,9 +452,12 @@ def get_obs_from_routeandmap_saved(
 #         roadgraph_obs=type_roadobs,
         roadgraph_obs=roadgraph_obs,
         his_veh_trajs = his_veh_trajs,
-        point_on_route=point_on_route,
-        point_tl_status=point_tl_status,
-        point_has_speed_limit=point_has_speed_limit,
+        veh_gt_trajs = veh_gt_trajs,
+        sdc_gt_traj = sdc_gt_traj,
+        agent_gt_traj = agent_gt_traj,
+        point_on_route = point_on_route,
+        point_tl_status = point_tl_status,
+        point_has_speed_limit = point_has_speed_limit,
 #         roadgraph_sampled=roadgraph_sampled,
 #         roadgraph_sampled_type=roadgraph_sampled_type,
 #         # traj_obs=traj_obs,
@@ -517,14 +534,14 @@ def _interpolate_polyline(points: jax.Array, t: int) -> jax.Array:
 
     return points_interp
 
-get_obs_from_routeandmap_saved_pmap = jax.pmap(
-    get_obs_from_routeandmap_saved,
-    static_broadcasted_argnums=(5,),
-)
-get_obs_from_routeandmap_saved_jit = jax.jit(
-    get_obs_from_routeandmap_saved,
-    static_argnames=('vis_distance',),
-)
+# get_obs_from_routeandmap_saved_pmap = jax.pmap(
+#     get_obs_from_routeandmap_saved,
+#     static_broadcasted_argnums=(5,),
+# )
+# get_obs_from_routeandmap_saved_jit = jax.jit(
+#     get_obs_from_routeandmap_saved,
+#     static_argnames=('vis_distance',),
+# )
 
-# get_obs_from_routeandmap_saved_pmap = get_obs_from_routeandmap_saved
-# get_obs_from_routeandmap_saved_jit = get_obs_from_routeandmap_saved
+get_obs_from_routeandmap_saved_pmap = get_obs_from_routeandmap_saved
+get_obs_from_routeandmap_saved_jit = get_obs_from_routeandmap_saved

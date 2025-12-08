@@ -1,5 +1,5 @@
 # set your path here (override these exports before sourcing if needed)
-export WAYMO_DATASET_PATH="-/workspace/WOMD"
+export WAYMO_DATASET_PATH="/workspace"
 export ROOT_PATH="/workspace/Git/catk-simulator"
 # export PRE_PROCESS_ROOT_PATH="/workspace/Git/LatentDriver"
 export PRE_PROCESS_ROOT_PATH="/workspace/Git/catk-simulator"

@@ -37,19 +37,19 @@ if [ -n "${COLLECT_BATCH_DEVICES:-}" ]; then
   esac
 fi
 
-python src/preprocess/saving_training_data.py \
-    ++batch_dims=[${DEVICE_COUNT},32] \
-    ++waymax_conf.drop_remainder=True \
-    ++waymax_conf.path="${WOMD_TRAIN_PATH}" \
-    ++data_conf.path_to_processed_map_route="${PRE_PROCESS_TRAIN_PATH}" \
-    ++metric_conf.intention_label_path="${INTENTION_TRAIN_PATH}" \
-    ++save_path="${TRAINING_DATA_PATH}"
-
-
 # python src/preprocess/saving_training_data.py \
-#     ++batch_dims=[${DEVICE_COUNT},25] \
+#     ++batch_dims=[${DEVICE_COUNT},32] \
 #     ++waymax_conf.drop_remainder=True \
-#     ++waymax_conf.path="${WOMD_VAL_PATH}" \
-#     ++data_conf.path_to_processed_map_route="${PRE_PROCESS_VAL_PATH}" \
-#     ++metric_conf.intention_label_path="${INTENTION_VAL_PATH}" \
+#     ++waymax_conf.path="${WOMD_TRAIN_PATH}" \
+#     ++data_conf.path_to_processed_map_route="${PRE_PROCESS_TRAIN_PATH}" \
+#     ++metric_conf.intention_label_path="${INTENTION_TRAIN_PATH}" \
 #     ++save_path="${TRAINING_DATA_PATH}"
+
+
+python src/preprocess/saving_training_data.py \
+    ++batch_dims=[${DEVICE_COUNT},25] \
+    ++waymax_conf.drop_remainder=True \
+    ++waymax_conf.path="${WOMD_VAL_PATH}" \
+    ++data_conf.path_to_processed_map_route="${PRE_PROCESS_VAL_PATH}" \
+    ++metric_conf.intention_label_path="${INTENTION_VAL_PATH}" \
+    ++save_path="${TRAINING_DATA_PATH}"
