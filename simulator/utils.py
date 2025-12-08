@@ -73,6 +73,7 @@ def get_cache_tl_status_baseline(cur_state: datatypes.SimulatorState,
     tl_by_device = []
     dev_dim = cur_id.shape[0] if hasattr(cur_id, 'shape') else 1
     has_batch = (hasattr(cur_id, 'ndim') and cur_id.ndim >= 2)
+    global_max_len = 0
     for device_id in range(dev_dim):
         tl_by_batch = []
         batch_range = range(cur_id.shape[1]) if has_batch else range(1)
@@ -105,8 +106,22 @@ def get_cache_tl_status_baseline(cur_state: datatypes.SimulatorState,
                 pad = np.zeros((max_len - arr.shape[0], arr.shape[1]), dtype=arr.dtype)
                 arr = np.concatenate([arr, pad], axis=0)
             padded_batch.append(arr)
-        tl_by_device.append(np.stack(padded_batch, axis=0) if padded_batch else np.zeros((0, 0, 6)))
-    return np.stack(tl_by_device, axis=0)
+        device_stack = np.stack(padded_batch, axis=0) if padded_batch else np.zeros((0, 0, 6))
+        global_max_len = max(global_max_len, device_stack.shape[1] if device_stack.ndim >= 2 else 0)
+        tl_by_device.append(device_stack)
+
+    # Pad across devices so that every device shares the same max_len and stacks cleanly.
+    padded_devices = []
+    for device_stack in tl_by_device:
+        if device_stack.shape and device_stack.shape[1] < global_max_len:
+            pad = np.zeros(
+                (device_stack.shape[0], global_max_len - device_stack.shape[1], device_stack.shape[2]),
+                dtype=device_stack.dtype,
+            )
+            device_stack = np.concatenate([device_stack, pad], axis=1)
+        padded_devices.append(device_stack)
+
+    return np.stack(padded_devices, axis=0) if padded_devices else np.zeros((0, 0, 0, 6))
 
 
 def get_cache_on_route_baseline(cur_state: datatypes.SimulatorState,

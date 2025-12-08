@@ -11,16 +11,17 @@ else
 fi
 
 # for vaildation
-python -m src.preprocess.preprocess_data \
-    ++batch_dims=[4,128] \
-    ++waymax_conf.path="${WOMD_VAL_PATH}" \
-    ++waymax_conf.max_num_rg_points=30000 \
-    ++waymax_conf.drop_remainder=True \
-    ++data_conf.path_to_processed_map_route="${PRE_PROCESS_VAL_PATH}" \
-    ++metric_conf.intention_label_path="${INTENTION_VAL_PATH}"
+# python -m src.preprocess.preprocess_data \
+#     ++batch_dims=[4,128] \
+#     ++waymax_conf.path="${WOMD_VAL_PATH}" \
+#     ++waymax_conf.max_num_rg_points=30000 \
+#     ++waymax_conf.drop_remainder=True \
+#     ++data_conf.path_to_processed_map_route="${PRE_PROCESS_VAL_PATH}" \
+#     ++metric_conf.intention_label_path="${INTENTION_VAL_PATH}"
+
 # for training
 python -m src.preprocess.preprocess_data \
-    ++batch_dims=[4,128] \
+    ++batch_dims=[4,32] \
     ++waymax_conf.path="${WOMD_TRAIN_PATH}" \
     ++waymax_conf.max_num_rg_points=30000 \
     ++waymax_conf.drop_remainder=True \

@@ -505,8 +505,9 @@ class WaymoEnv():
     def get_expert_action(self)->np.ndarray:
         current_state = self.states[-1]
         traj = self.com_traj(current_state)
-#         action = self.dynamic_inverse(traj, current_state.object_metadata,jnp.zeros(self.batch_dims[0],dtype=jnp.int32))
-        action = self.dynamic_inverse(traj, current_state.object_metadata, jnp.int32(0))
+        # pmap version expects a leading device axis on timestep; jit version accepts scalar.
+        timestep = jnp.zeros(self.num_devices, dtype=jnp.int32) if self.num_devices > 1 else jnp.int32(0)
+        action = self.dynamic_inverse(traj, current_state.object_metadata, timestep)
         action = np.array(action.data[current_state.object_metadata.is_sdc])
         return action
 
@@ -521,7 +522,8 @@ class WaymoEnv():
         self.metric.reset(self.intention_label)
         obs, obs_dict = self._compute_obs(cur_state)
 
-        reference_lines = get_reference_line(cur_state)
+        # reference_lines = get_reference_line(cur_state)
+        reference_lines = None
         target = None
 #         reference_lines, target = None, None
         return obs, obs_dict, reference_lines, target
@@ -555,8 +557,8 @@ class WaymoEnv():
 
 #         DebugVisualisation().plot_map(obs_dict['roadgraph_obs'], obs_dict['route_segments'])
 
-        reference_lines = get_reference_line(next_state)
-#         reference_lines = None
+        # reference_lines = get_reference_line(next_state)
+        reference_lines = None
         done = np.repeat(is_done, self.batch_dims[-1]).astype(bool)
         self.states.append(next_state)
         self.metric.update(rewards,rew)
