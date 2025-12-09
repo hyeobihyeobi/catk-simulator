@@ -25,3 +25,4 @@ outputs/
 *.backup
 
 scripts/set_env.sh
+planner/
