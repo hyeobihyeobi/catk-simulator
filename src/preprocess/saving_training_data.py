@@ -101,15 +101,19 @@ class TrainingDataCollector():
             try:
                 a = time.time()
                 obs, obs_dict, reference_lines, target = self.env.reset()
+                # import pdb; pdb.set_trace()
+                if obs == None:
+                    continue
+                
                 obs_formatted = self._format_obs(obs)
                 # ref_formatted = self._format_reference_lines(reference_lines)
 
-                obs_seq = {k: [v] for k, v in obs_formatted.items()}
-                # ref_seq = {k: [v] for k, v in ref_formatted.items()}
-                actions_bicycle = []
-                actions_waypoints = []
-                rewards = []
-                done_ = False
+                # obs_seq = {k: [v] for k, v in obs_formatted.items()}
+                # # ref_seq = {k: [v] for k, v in ref_formatted.items()}
+                # actions_bicycle = []
+                # actions_waypoints = []
+                # rewards = []
+                # done_ = False
 
                 sdc_gt_raw = obs_dict.get('sdc_gt_traj', None)
                 agent_gt_raw = obs_dict.get('agent_gt_traj', None)

@@ -435,6 +435,16 @@ class WaymoEnv():
         self.path_to_map = os.path.join(data_conf.path_to_processed_map_route,'map')
         self.path_to_route = os.path.join(data_conf.path_to_processed_map_route,'route')
         self.path_to_tl = os.path.join(data_conf.path_to_processed_map_route,'tl_status')
+        
+        self.sampled_list = []
+        from pathlib import Path
+        p = Path("/workspace/catk-simulator/name_txt/name.txt")
+        with p.open("r", encoding="utf-8") as f:
+            for line in f:
+                s = line.strip()
+                if not s:
+                    continue
+                self.sampled_list.append(int(s))
 
     def _compute_obs(self, state):
         if self._catk_multi:
@@ -516,6 +526,12 @@ class WaymoEnv():
         initial_state = self.env.pmap_reset(self.scenario)
         self.states = [initial_state]
         cur_state = initial_state
+        
+        # import pdb; pdb.set_trace()
+        # if int(np.array(cur_state.scenario_id)) not in self.sampled_list:
+        if not np.isin(cur_state.scenario_id, self.sampled_list).all():
+            return None, None, None, None
+        
         self.road_np, self.route_np, self.intention_label = get_cache_polylines_baseline(cur_state, self.path_to_map, self.path_to_route, self.metric.intention_label_path)
         self.tl_np = get_cache_tl_status_baseline(cur_state, self.path_to_tl)
         self.on_route_mask_np = get_cache_on_route_baseline(cur_state, self.path_to_map)
