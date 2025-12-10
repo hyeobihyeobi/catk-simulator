@@ -34,60 +34,21 @@ class TransformSamplingSubTraj:
             self.act_key = 'waypoints_actions'
             self.act_dim = 3
     def __call__(self, traj, si):
-        # si = random.randint(0, traj["rewards"].shape[0] - 1 - self.max_len)
-        # si = 1
-        # get sequences from dataset
-        ss = traj["obs"][si : si + self.max_len].reshape(self.max_len, -1, self.state_dim)
-        aa = traj[self.act_key][si : si + self.max_len].reshape(self.max_len, self.act_dim)
-        try:
-            aa_gt = traj[self.act_key][si+1 : si+ 1 + self.max_len].reshape(self.max_len, self.act_dim).astype(np.float32)
-        except:
-            print(traj[self.act_key][si+1 : si+ 1 + self.max_len].shape, si)
-            raise ValueError
-
-        rr = traj["rewards"][si : si + self.max_len].reshape(self.max_len, 1)
-
-        if "terminals" in traj:
-            dd = traj["terminals"][si : si + self.max_len]  # .reshape(-1)
-        else:
-            dd = traj["dones"][si : si + self.max_len]  # .reshape(-1)
-
-        # get the total length of a trajectory
-        tlen = ss.shape[0]
-
-        timesteps = np.arange(si, si + tlen)  # .reshape(-1)
-        ordering = np.arange(tlen)
-        ordering[timesteps >= MAX_EPISODE_LEN] = -1
-        ordering[ordering == -1] = ordering.max()
-        timesteps[timesteps >= MAX_EPISODE_LEN] = MAX_EPISODE_LEN - 1  # padding cutoff
-        # reward to go, not used in this case
-        rtg = discount_cumsum(traj["rewards"][si:], gamma=1.0)[: tlen + 1].reshape(
-            -1, 1
-        )
-        if rtg.shape[0] <= tlen:
-            rtg = np.concatenate([rtg, np.zeros((1, 1))])
-
-        # padding and state + reward normalization
-        act_len = aa.shape[0]
-        if tlen != act_len:
-            print(ss.shape, aa.shape)
-            raise ValueError
-
-        ss = np.concatenate([np.zeros((self.max_len - tlen, ss.shape[1],self.state_dim)), ss], dtype=np.float32)
-
-        aa = np.concatenate([np.zeros((self.max_len - tlen, self.act_dim)), aa], dtype=np.float32)
-        rr = np.concatenate([np.zeros((self.max_len - tlen, 1)), rr], dtype=np.float32)
-        dd = np.concatenate([np.ones((self.max_len - tlen)) * 2, dd])
-        rtg = (
-            np.concatenate([np.zeros((self.max_len - tlen, 1)), rtg], dtype=np.float32)
-            * self.reward_scale
-        )
-        timesteps = np.concatenate([np.zeros((self.max_len - tlen)), timesteps]).astype(np.int32)
-        ordering = np.concatenate([np.zeros((self.max_len - tlen)), ordering])
-        padding_mask = np.concatenate([np.zeros(self.max_len - tlen), np.ones(tlen)])
-        aa_gt_normal = torch.from_numpy(self.normalizer.normalize(aa_gt)).clamp(min=-1.0, max=1.0)
-
-        return ss, aa, aa_gt, aa_gt_normal,rr, dd, rtg, timesteps, ordering, padding_mask
+        """
+        Adapted for new preprocessed data:
+        traj = {'obs': <dict of numpy arrays>, 'sdc_gt': ..., 'agent_gt': ...}
+        We simply return the observation dict and GT trajectories.
+        """
+        obs = traj.get("obs", {})
+        sdc_gt = traj.get("sdc_gt", None)
+        agent_gt = traj.get("agent_gt", None)
+        # Convert to torch tensors where possible for downstream code.
+        obs_torch = {}
+        for k, v in obs.items():
+            obs_torch[k] = v if torch.is_tensor(v) else torch.tensor(v)
+        sdc_gt_torch = None if sdc_gt is None else (sdc_gt if torch.is_tensor(sdc_gt) else torch.tensor(sdc_gt))
+        agent_gt_torch = None if agent_gt is None else (agent_gt if torch.is_tensor(agent_gt) else torch.tensor(agent_gt))
+        return obs_torch, sdc_gt_torch, agent_gt_torch
         # return dict(
         #     states=ss,
         #     actions=aa,

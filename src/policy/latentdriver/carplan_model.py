@@ -1087,7 +1087,8 @@ class CarPLAN(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
 
-        (ss, position, vector, orientation, valid_mask, future_projection, target, target_vel, target_valid_mask, is_sdc) = batch
+#         (ss, position, vector, orientation, valid_mask, future_projection, target, target_vel, target_valid_mask, is_sdc) = batch
+        (ss, sdc_gt, agent_gt) = batch
         B, T, _, _ = ss.shape
 
         for bs in range(B):
