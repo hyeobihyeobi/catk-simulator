@@ -336,7 +336,7 @@ def get_obs_from_routeandmap_saved(
     veh_segs = veh_segs.reshape(B, cur_vehicle_sgements.shape[-2], cur_vehicle_sgements.shape[-1])
     # for other agents trajs
     # (bs,num_objs,time_step-1,6)
-    his_veh_trajs = vehicle_sgements[...,:-1,:]
+    his_veh_trajs = vehicle_sgements #[...,:-1,:]
     veh_gt_trajs = vehicle_gt_sgements #[...,:-1,:]
     his_types = jnp.ones(his_veh_trajs.shape[:-1])[...,jnp.newaxis] * 2
     his_veh_trajs = jnp.concatenate([his_types, his_veh_trajs], axis=-1)
