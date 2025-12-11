@@ -227,7 +227,7 @@ def get_obs_from_routeandmap_saved(
         type_array = jnp.where(padding_mask[...,jnp.newaxis], 0, type_array)
         return type_array
     # whole_map (bs, max_segs, 6); state.roadgraph_points can carry extra leading axes (e.g., device, batch)
-#     B,P = state.roadgraph_points.shape
+#     B, P = state.roadgraph_points.shape
     # Select the XY position at the current timestep.
     # Shape: (..., num_agents, 2)
     # obj_xy = state.current_sim_trajectory.xy[..., 0, :]
@@ -300,7 +300,9 @@ def get_obs_from_routeandmap_saved(
 
     whole_map_roi = new_whole_map*mask_roi[...,jnp.newaxis]
     whole_map_roi = whole_map_roi * unpad_mask_map[...,jnp.newaxis]
-    on_route_roi = on_route_mask * mask_roi[..., jnp.newaxis] * unpad_mask_map[..., jnp.newaxis]
+#     on_route_roi = on_route_mask * mask_roi[..., jnp.newaxis] * unpad_mask_map[..., jnp.newaxis]
+    B, P = on_route_mask.shape[0], on_route_mask.shape[1]
+    on_route_roi = on_route_mask.reshape(B, P) * mask_roi.reshape(B, P) * unpad_mask_map.reshape(B, P)
 
 #     DebugVisualisation().plot_map_jax(
 #         whole_map_roi[..., :2],
@@ -322,7 +324,7 @@ def get_obs_from_routeandmap_saved(
     # roadgraph_obs = roadgraph_obs[vali_mask].reshape(B,-1,6)
     type_roadobs = add_type_and_reset_padding(roadgraph_obs, 3)
     point_on_route = on_route_roi
-    point_on_route = jnp.squeeze(point_on_route, axis=-1)
+#     point_on_route = jnp.squeeze(point_on_route, axis=-1)
     if point_on_route.ndim == 3 and point_on_route.shape[1] == 1:
         point_on_route = point_on_route[:, 0, :]
 

@@ -526,12 +526,12 @@ class WaymoEnv():
         initial_state = self.env.pmap_reset(self.scenario)
         self.states = [initial_state]
         cur_state = initial_state
-        
+
         # import pdb; pdb.set_trace()
         # if int(np.array(cur_state.scenario_id)) not in self.sampled_list:
         if not np.isin(cur_state.scenario_id, self.sampled_list).all():
             return None, None, None, None
-        
+
         self.road_np, self.route_np, self.intention_label = get_cache_polylines_baseline(cur_state, self.path_to_map, self.path_to_route, self.metric.intention_label_path)
         self.tl_np = get_cache_tl_status_baseline(cur_state, self.path_to_tl)
         self.on_route_mask_np = get_cache_on_route_baseline(cur_state, self.path_to_map)
