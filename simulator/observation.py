@@ -381,7 +381,7 @@ def get_obs_from_routeandmap_saved(
     type_route_seg = add_type_and_reset_padding(route_obs, 1)
 
     # Map traffic light status to roadgraph points by matching IDs.
-    tl_array = jnp.array(state["log_traffic_light"].state)
+    tl_array = jnp.array(state["log_traffic_light"].state)  
     # Align traffic light time axis with the history horizon used for vehicles.
     if tl_array.ndim >= 3:
         tl_array = tl_array[..., :time_step]
