@@ -9,7 +9,7 @@ venv/
 dist/
 build/
 .DS_Store
-train_data/
+train_data*/
 train_intention_label/
 train_preprocessed_path/
 val_intention_label/
@@ -27,3 +27,4 @@ outputs/
 scripts/set_env.sh
 planner/
 name_txt/
+train_preprocessed_path_reference_lines/

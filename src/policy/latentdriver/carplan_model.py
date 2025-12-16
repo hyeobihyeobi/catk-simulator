@@ -189,7 +189,7 @@ class CarPLAN(pl.LightningModule):
         state_channel=6,
         polygon_channel=6,
         history_channel=9,
-        history_steps=10,
+        history_steps=11,
         future_steps=80,
         encoder_depth=4,
         decoder_depth=4,
@@ -378,6 +378,16 @@ class CarPLAN(pl.LightningModule):
         self.optim_conf = kwargs['optimizer']
         self.sched_conf = kwargs['scheduler']
         self.lr = kwargs['learning_rate']
+        
+        self.tl_types = {0: 3, 
+                         1: 3, 
+                         2: 3, 
+                         3: 3, 
+                         4: 2,
+                         5: 1,
+                         6: 0,
+                         7: 3,
+                         8: 3}
 
     def init_world(self, world_conf, pretrain_world, freeze_world):
         self.world_model = build_world(world_conf)
@@ -427,60 +437,10 @@ class CarPLAN(pl.LightningModule):
                 chunk_size = max(1, new_chunk)
 
     def forward(
-    #     self,
-    #     ss, # bs , seq_len, state_attributes, state_dim
-    #     position = None,# bs , seq_len, act_dim
-    #     vector = None,
-    #     orientation = None,
-    #     valid_mask = None,
-    #     future_projection = None,
-    # ):
         self,
         ss,
-        actions,
-        reference_lines,
-        timesteps,
-        padding_mask,
+        reference_lines=None,
     ):
-        # reference_lines = {
-        #     "position": position,
-        #     "vector": vector,
-        #     "orientation": orientation,
-        #     "valid_mask": valid_mask,
-        #     "future_projection": future_projection,
-        # }
-#         batch_size, seq_length, state_elements, state_dims = ss.shape[0], ss.shape[1], ss.shape[2], ss.shape[3]
-#         flattened_states = ss.reshape(batch_size * seq_length, state_elements, state_dims)
-#         bert_embeddings = self._encode_with_bert(flattened_states)
-#         bert_embeddings = bert_embeddings.reshape(batch_size, seq_length, -1, self.bert.hidden_size)
-# 
-#         actions_layers = []
-#         cur_latent_token = bert_embeddings[:,:,0:1,:]
-#         B,T,_,_ = bert_embeddings.shape
-#         # query_pe = self.query_pe(None).repeat(B*T,1,1).permute(1,0,2)
-#         # query_content = torch.zeros_like(query_pe)
-#         # action_dis = None
-#         # fut_latent_dis = None
-#         latent_dist = None
-#         rep_dist = None
-# 
-#         current_bert_embeddings = bert_embeddings[:, 1, 1:]
-# 
-#         input_batch_type = flattened_states[..., 0]
-# 
-#         car_mask = (input_batch_type == 2).unsqueeze(-1)
-#         road_graph_mask = (input_batch_type == 3).unsqueeze(-1)
-#         route_mask = (input_batch_type == 1).unsqueeze(-1)
-#         sdc_mask = (input_batch_type == 4).unsqueeze(-1)
-#         # current_bert_padding_mask = (~torch.logical_or(torch.logical_or(torch.logical_or(route_mask, car_mask), road_graph_mask), sdc_mask)).squeeze(-1).reshape(batch_size, T, -1)[:, 1]
-#         current_bert_padding_mask = (~torch.logical_or(torch.logical_or(route_mask, car_mask), road_graph_mask)).squeeze(-1).reshape(batch_size, T, -1)[:, 1]
-# 
-#         agent_embeddings_for_prediction = current_bert_embeddings[:, 20:148] + bert_embeddings[:, 1, 0:1]
-#         loc = self.loc_predictor(agent_embeddings_for_prediction).view(B, 128, 80, 2)
-#         yaw = self.yaw_predictor(agent_embeddings_for_prediction).view(B, 128, 80, 2)
-#         vel = self.vel_predictor(agent_embeddings_for_prediction).view(B, 128, 80, 2)
-#         prediction = torch.cat([loc, yaw, vel], dim=-1)
-
         data = self.ss_to_datadict(ss)
 
         agent_pos = data["agent"]["position"][:, :, self.history_steps - 1]
@@ -491,19 +451,10 @@ class CarPLAN(pl.LightningModule):
 
         bs, A = agent_pos.shape[0:2]
 
-        x_polygon = self.map_encoder(data)
-#         x_static, static_pos, static_key_padding = self.static_objects_encoder(data)
-
-        M_shape = x_polygon.shape[1]
         position = torch.cat([agent_pos, polygon_center[..., :2]], dim=1) #torch.Size([B, N+1+M, 2])
         angle = torch.cat([agent_heading, polygon_center[..., 2]], dim=1) #torch.Size([B, N+1+M])
         angle = (angle + math.pi) % (2 * math.pi) - math.pi
         pos = torch.cat([position, angle.unsqueeze(-1)], dim=-1) #torch.Size([B, N+1+M, 3])
-
-
-#         angle = agent_heading
-#         angle = (angle + math.pi) % (2 * math.pi) - math.pi
-#         pos = torch.cat([agent_pos, angle.unsqueeze(-1)], dim=-1) #torch.Size([B, N+1+M, 3])
 
         agent_key_padding = ~(agent_mask.any(-1))
         polygon_key_padding = ~(polygon_mask.any(-1))
@@ -607,6 +558,26 @@ class CarPLAN(pl.LightningModule):
 #         return out, best_trajectory,latent_dist, rep_dist
         return out, output_ref_free_trajectory,latent_dist, rep_dist
 
+    def calculate_additional_ego_states(
+        self, cur_velocity, angle_diff, wheel_base, dt=0.1
+    ):
+        # cur_velocity = current_state.dynamic_car_state.rear_axle_velocity_2d.x
+        # angle_diff = current_state.rear_axle.heading - prev_state.rear_axle.heading
+        angle_diff = (angle_diff + math.pi) % (2 * math.pi) - math.pi
+        yaw_rate = angle_diff / dt
+        
+        eps = 0.2
+        valid_mask = cur_velocity.abs() >= eps  
+        safe_velocity = cur_velocity.abs().clamp(min=eps)
+        steering_angle = torch.atan(yaw_rate * wheel_base.unsqueeze(-1) / safe_velocity)
+        steering_angle = steering_angle.clamp(-2/3 * math.pi, 2/3 * math.pi)
+        yaw_rate = yaw_rate.clamp(-0.95, 0.95)
+        
+        steering_angle = torch.where(valid_mask, steering_angle, torch.zeros_like(steering_angle))
+        yaw_rate = torch.where(valid_mask, yaw_rate, torch.zeros_like(yaw_rate))
+
+        return steering_angle, yaw_rate
+        
     def ss_to_datadict(self, ss):
         if not isinstance(ss, dict):
             raise TypeError("ss_to_datadict expects a dict with separated attributes (his_veh_trajs, ...).")
@@ -654,23 +625,25 @@ class CarPLAN(pl.LightningModule):
         if current_state_tmp.dim() == 4:
             current_state_tmp = current_state_tmp[..., -1, :]  # (envs, agents, feat)
 
-        ego_state = current_state_tmp[:, 0, :]  # assume ego is agent index 0
+        ego_state = current_state_tmp[(current_state_tmp[..., 0] == 4)]
+        # ego_state = current_state_tmp[:, 0, :]  # assume ego is agent index 0
         xy = ego_state[..., 1:3]
         heading = ego_state[..., 5:6]
-        v_scarlar = torch.sqrt(ego_state[..., 6:7] ** 2 + ego_state[..., 7:8] ** 2)
-        a_scarlar = torch.sqrt(ego_state[..., 8:9] ** 2 + ego_state[..., 9:10] ** 2)
-        steering_angle = torch.abs(heading - his[:, 0, -1, 5:6])
-        mask = ego_state[..., -1:].to(ego_state.dtype)
+        v_x = ego_state[..., 6:7] #torch.sqrt(ego_state[..., 6:7] ** 2 + ego_state[..., 7:8] ** 2)
+        a_x = ego_state[..., 8:9] #torch.sqrt(ego_state[..., 8:9] ** 2 + ego_state[..., 9:10] ** 2)
+        ego_wheelbase = 0.6 * ego_state[:, 4]
+        angle_diff = heading - his[(current_state_tmp[..., 0] == 4)][:, 9, 5:6]
+        steering_angle, yaw_rate = self.calculate_additional_ego_states(v_x, angle_diff, ego_wheelbase)
         current_state = torch.cat(
-            [xy, heading, v_scarlar, a_scarlar, steering_angle, mask],
+            [xy, heading, v_x, a_x, steering_angle, yaw_rate],
             dim=-1,
         )
 
 
         road_obs_arr = _to_torch(ss['roadgraph_obs'])
         map_valid_mask = _to_torch(ss['valid_mask'])
-        sample_points = 20
-        ids_arr = road_obs_arr[..., 4].long()
+        sample_points = 21
+        ids_arr = road_obs_arr[..., 4].long() #roadgraph 고유 아이디
         valid_mask = (road_obs_arr.sum(dim=-1) != 0)
         sampled_paths: list[list[torch.Tensor]] = []
         sampled_types: list[list[torch.Tensor]] = []
@@ -726,11 +699,7 @@ class CarPLAN(pl.LightningModule):
                 point_speed_limit[b] if point_speed_limit.numel() else torch.zeros_like(valid_ids, dtype=road_obs_arr.dtype),
                 torch.zeros_like(valid_ids, dtype=road_obs_arr.dtype),
             )
-            valid_has_speed_limit = torch.where(
-                valid_mask[b],
-                point_has_speed_limit[b] if point_has_speed_limit.numel() else torch.zeros_like(valid_ids, dtype=torch.bool),
-                torch.zeros_like(valid_ids, dtype=torch.bool),
-            )
+            valid_has_speed_limit = torch.zeros_like(valid_ids, dtype=torch.bool)
             batch_paths = []
             batch_types = []
             batch_ids = []
@@ -756,14 +725,14 @@ class CarPLAN(pl.LightningModule):
                 type_val = pts[0, 3]
                 type_val = torch.where(
                     type_val == 18,
-                    torch.tensor(3, device=pts.device, dtype=type_val.dtype),
-                    type_val,
+                    torch.tensor(1, device=pts.device, dtype=type_val.dtype),
+                    0,
                 )
                 batch_types.append(torch.full((sample_points,), type_val, device=pts.device, dtype=sampled.dtype))
                 batch_ids.append(torch.full((sample_points,), uid, device=pts.device, dtype=torch.long))
                 # Aggregate scalar attributes per polyline.
                 on_route_val = valid_on_route[uid_mask].any() if valid_on_route.numel() else torch.zeros((), device=pts.device, dtype=torch.bool)
-                tl_status_val = valid_tl_status[uid_mask].max() if valid_tl_status.numel() else torch.zeros((), device=pts.device, dtype=valid_tl_status.dtype)
+                tl_status_val = torch.tensor(self.tl_types[int(valid_tl_status[uid_mask].max())]).to(on_route_val) if valid_tl_status.numel() else torch.zeros((), device=pts.device, dtype=valid_tl_status.dtype)
                 speed_limit_val = valid_speed_limit[uid_mask].max() if valid_speed_limit.numel() else torch.zeros((), device=pts.device, dtype=road_obs_arr.dtype)
                 has_speed_limit_val = valid_has_speed_limit[uid_mask].any() if valid_has_speed_limit.numel() else torch.zeros((), device=pts.device, dtype=torch.bool)
                 batch_on_route.append(on_route_val)
@@ -823,41 +792,44 @@ class CarPLAN(pl.LightningModule):
             polygon_has_speed_limit_vals = torch.zeros((road_obs_arr.shape[0], 0), device=road_obs_arr.device, dtype=torch.bool)
 
         B, M, P = roadgraph_sampled.shape[0], roadgraph_sampled.shape[1], sample_points
-        point_position = roadgraph_sampled[..., :2].unsqueeze(2)  # (B, M, 1, P, 2)
+        # point_position = roadgraph_sampled[..., :2] #.unsqueeze(2)  # (B, M, 1, P, 2)
         # forward difference with zero padding on the last point
-        diff = roadgraph_sampled[..., 1:, :2] - roadgraph_sampled[..., :-1, :2]
-        zero_tail = torch.zeros_like(diff[..., :1, :])
-        point_vector = torch.cat([diff, zero_tail], dim=-2).unsqueeze(2)  # (B, M, 1, P, 2)
+        point_vector = roadgraph_sampled[..., 1:, :2] - roadgraph_sampled[..., :-1, :2]
+        point_position = roadgraph_sampled[:, :, :-1]
+        # zero_tail = torch.zeros_like(diff[..., :1, :])
+        # point_vector = torch.cat([diff, zero_tail], dim=-2).unsqueeze(2)  # (B, M, 1, P, 2)
         point_side = torch.zeros((B, M, 1), device=road_obs_arr.device, dtype=torch.int8)
-        point_orientation = roadgraph_sampled[..., 2].unsqueeze(2)  # (B, M, 1, P)
-        polygon_center = roadgraph_sampled[..., sample_points // 2, :]
+        point_orientation = torch.arctan2(point_vector[..., 1], point_vector[..., 0]) #roadgraph_sampled[..., 2].unsqueeze(2)  # (B, M, 1, P)
+        
+        polygon_center = torch.cat((roadgraph_sampled[:, :, int((sample_points-1) / 2), :2], point_orientation[:, :, int((sample_points-1) / 2)].unsqueeze(-1)), dim=-1)
         polygon_position = roadgraph_sampled[..., 0, :2]
-        polygon_orientation = roadgraph_sampled[..., 0, 2:3]
+        polygon_orientation = point_orientation[..., 0]
+        
         polygon_type = roadgraph_sampled_type[..., 0] if roadgraph_sampled_type.numel() else torch.zeros((B, M), device=road_obs_arr.device, dtype=road_obs_arr.dtype)
         polygon_on_route = polygon_on_route_vals
         polygon_tl_status = polygon_tl_status_vals
         polygon_speed_limit = polygon_speed_limit_vals
         polygon_has_speed_limit = polygon_has_speed_limit_vals
         polygon_road_block_id = roadgraph_sampled_id[..., 0] if roadgraph_sampled_id.numel() else torch.zeros((B, M), device=road_obs_arr.device, dtype=torch.long)
-        valid_mask = torch.any(roadgraph_sampled.abs().sum(dim=-1) != 0, dim=-1)
+        valid_mask = point_position.abs().sum(dim=-1) != 0 #torch.any(roadgraph_sampled.abs().sum(dim=-1) != 0, dim=-1)
         # Align map_valid_mask to the sampled roadgraph shape (B, M, P) so downstream code can use the same masking.
-        map_valid_mask_raw = ss.get("map_valid_mask", None)
-        if map_valid_mask_raw is not None:
-            map_valid_mask_raw = _to_torch(map_valid_mask_raw)
-            # Flatten any leading device/batch dims and trim/pad to match sample_points per segment.
-            map_valid_mask_raw = map_valid_mask_raw.reshape(B, -1)
-            if map_valid_mask_raw.shape[-1] >= sample_points:
-                map_valid_mask_sampled = map_valid_mask_raw[:, : sample_points]
-            else:
-                pad_len = sample_points - map_valid_mask_raw.shape[-1]
-                map_valid_mask_sampled = torch.cat(
-                    [map_valid_mask_raw, torch.zeros((B, pad_len), device=map_valid_mask_raw.device, dtype=map_valid_mask_raw.dtype)],
-                    dim=-1,
-                )
-            # Broadcast to (B, M, P) following roadgraph_sampled.
-            map_valid_mask = map_valid_mask_sampled[:, None, :].expand(B, M, sample_points)
-        else:
-            map_valid_mask = torch.ones((B, M, sample_points), device=road_obs_arr.device, dtype=torch.bool)
+        # map_valid_mask_raw = ss.get("map_valid_mask", None)
+        # if map_valid_mask_raw is not None:
+        #     map_valid_mask_raw = _to_torch(map_valid_mask_raw)
+        #     # Flatten any leading device/batch dims and trim/pad to match sample_points per segment.
+        #     map_valid_mask_raw = map_valid_mask_raw.reshape(B, -1)
+        #     if map_valid_mask_raw.shape[-1] >= sample_points:
+        #         map_valid_mask_sampled = map_valid_mask_raw[:, : sample_points]
+        #     else:
+        #         pad_len = sample_points - map_valid_mask_raw.shape[-1]
+        #         map_valid_mask_sampled = torch.cat(
+        #             [map_valid_mask_raw, torch.zeros((B, pad_len), device=map_valid_mask_raw.device, dtype=map_valid_mask_raw.dtype)],
+        #             dim=-1,
+        #         )
+        #     # Broadcast to (B, M, P) following roadgraph_sampled.
+        #     map_valid_mask = map_valid_mask_sampled[:, None, :].expand(B, M, sample_points)
+        # else:
+        #     map_valid_mask = torch.ones((B, M, sample_points), device=road_obs_arr.device, dtype=torch.bool)
 
         # his shape now: (num_envs, num_agents, T_hist, feat)
         agent_pos = his[..., 1:3]                     # (B, A, T, 2)
@@ -866,8 +838,9 @@ class CarPLAN(pl.LightningModule):
         agent_vel = his[..., 6:8]                     # vx, vy
         agent_acc = his[..., 8:10]                    # ax, ay
         agent_valid = (his[..., 10] == 1).bool()      # (B, A, T)
-        agent_category = his[..., 0, 0]               # type id (2=vehicle, 4=SDC set upstream)
-
+        # agent_category = his[..., 0, 0]               # type id (2=vehicle, 4=SDC set upstream)
+        agent_category = torch.where(his[..., 0, 0] == 2, torch.tensor(1, device=his.device), his[..., 0, 0])
+        agent_category[torch.arange(B), torch.where(current_state_tmp[..., 0] == 4)[1]] = 0
 
 #         DebugVisualisation().plot_sampled_map_and_route(
 #             point_position,
@@ -921,6 +894,7 @@ class CarPLAN(pl.LightningModule):
 
         data_dict = {
             "current_state": current_state,
+            "is_sdc_index": torch.where(current_state_tmp[..., 0] == 4)[1],
             "agent": {
                 "position": agent_pos,
                 "heading": agent_heading,
@@ -944,7 +918,7 @@ class CarPLAN(pl.LightningModule):
                 "polygon_speed_limit": polygon_speed_limit,
                 "polygon_has_speed_limit": polygon_has_speed_limit.bool(),
                 "polygon_road_block_id": polygon_road_block_id,
-                "valid_mask": map_valid_mask.bool(),
+                "valid_mask": valid_mask,
             }
         }
 
@@ -1089,24 +1063,24 @@ class CarPLAN(pl.LightningModule):
 
 #         (ss, position, vector, orientation, valid_mask, future_projection, target, target_vel, target_valid_mask, is_sdc) = batch
         (ss, sdc_gt, agent_gt) = batch
-        B, T, _, _ = ss.shape
+        B, _, _, _ = ss['his_veh_trajs'].shape
 
-        for bs in range(B):
-            for ref_idx, ref_lines in enumerate(position[bs]):
-                ref_valid_mask = valid_mask[bs, ref_idx]
-                ref_lines_valid = ref_lines[ref_valid_mask]
-                diffs = ref_lines_valid[1:] - ref_lines_valid[:-1]           # (N-1, 2)
-                dists = torch.norm(diffs, dim=1)             # 각 구간 거리
-                total_length = dists.sum()
-                if total_length > 120:
-                    valid_mask[bs, ref_idx] = False
+        # for bs in range(B):
+        #     for ref_idx, ref_lines in enumerate(position[bs]):
+        #         ref_valid_mask = valid_mask[bs, ref_idx]
+        #         ref_lines_valid = ref_lines[ref_valid_mask]
+        #         diffs = ref_lines_valid[1:] - ref_lines_valid[:-1]           # (N-1, 2)
+        #         dists = torch.norm(diffs, dim=1)             # 각 구간 거리
+        #         total_length = dists.sum()
+        #         if total_length > 120:
+        #             valid_mask[bs, ref_idx] = False
 
         import matplotlib.pyplot as plt
-        route_feat = ss[:, :, :20]
-        agent_feat = ss[:, :, 20:148]
-        road_feat = ss[:, :, 148:]
+        # route_feat = ss[:, :, :20]
+        # agent_feat = ss[:, :, 20:148]
+        # road_feat = ss[:, :, 148:]
 
-        agent_mask = (ss[:, 1, 20:148, 0] == 2)
+        # agent_mask = (ss[:, 1, 20:148, 0] == 2)
 
         # for bs in range(B):
         #     sdc_idx = torch.where(is_sdc[bs])[0]
@@ -1135,7 +1109,7 @@ class CarPLAN(pl.LightningModule):
         #     plt.savefig(f"/home/jyyun/workshop/LatentDriver/vis/scene/{bs}_scene.png")
         #     plt.close()
 
-        out, action_preds,rep_dist, latent_dist = self.forward(ss, position, vector, orientation, valid_mask, future_projection)
+        out, action_preds,rep_dist, latent_dist = self.forward(ss) #, position, vector, orientation, valid_mask, future_projection)
 
         trajectory, probability, prediction = (
             out["trajectory"][:B],

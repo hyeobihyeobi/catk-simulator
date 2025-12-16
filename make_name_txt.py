@@ -1,15 +1,15 @@
 import os
 
 # scene npy 파일들이 있는 디렉토리 경로
-directory = "/workspace/catk-simulator/train_preprocessed_path/tl_status"   # ← 여기 수정
+directory = "/workspace/catk-simulator/train_data/data"   # ← 여기 수정
 
 # 출력할 txt 파일 이름
-output_txt = "/workspace/catk-simulator/name_txt/name.txt"
+output_txt = "/workspace/catk-simulator/train_data/name.txt"
 
 scene_ids = []
 
 for filename in os.listdir(directory):
-    if filename.endswith(".npy"):
+    if filename.endswith(".pkl"):
         scene_id = os.path.splitext(filename)[0]  # .npy 제거
         scene_ids.append(scene_id)
 

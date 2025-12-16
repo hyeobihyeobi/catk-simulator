@@ -30,7 +30,7 @@ dim: 128
 state_channel: 6
 polygon_channel: 6
 history_channel: 9
-history_steps: 10
+history_steps: 11
 future_steps: 80
 encoder_depth: 4
 decoder_depth: 4

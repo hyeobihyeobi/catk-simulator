@@ -383,18 +383,25 @@ def get_obs_from_routeandmap_saved(
     type_route_seg = add_type_and_reset_padding(route_obs, 1)
 
     # Map traffic light status to roadgraph points by matching IDs.
-    tl_array = jnp.array(state["log_traffic_light"].state)  
+    tl_array = jnp.array(state["log_traffic_light"].state) 
+    tl_valid = jnp.array(state["log_traffic_light"].valid)
+    tl_ids = jnp.array(state["log_traffic_light"].lane_ids)
     # Align traffic light time axis with the history horizon used for vehicles.
     if tl_array.ndim >= 3:
         tl_array = tl_array[..., :time_step]
+        tl_valid = tl_valid[..., :time_step]
+        tl_ids = tl_ids[..., :time_step]
     if tl_array.ndim == 2:
         tl_array = tl_array[jnp.newaxis, ...]
+        tl_valid = tl_valid[jnp.newaxis, ...]
+        tl_ids = tl_ids[jnp.newaxis, ...]
     # valid tl rows: non-zero
-    tl_valid = jnp.abs(tl_array).sum(-1) != 0
-    tl_ids = tl_array[..., 5]
-    tl_states = tl_array[..., 4]
+    tl_valid = tl_valid[..., -1] #jnp.abs(tl_array).sum(-1) != 0
+    tl_ids = tl_ids[..., -1] #tl_array[..., 5]
+    tl_states = tl_array[..., -1] #tl_array[..., 4]
     road_ids = type_roadobs[..., -1]  # (B, P)
     match = (road_ids[..., None] == tl_ids[:, None, :]) & tl_valid[:, None, :]
+    
     mapped_state = jnp.where(match, tl_states[:, None, :], 0.0)
     point_tl_status = mapped_state.max(axis=-1)  # (B, P)
     # for vis sdc_obs

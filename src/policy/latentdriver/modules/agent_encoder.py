@@ -58,34 +58,13 @@ class AgentEncoder(nn.Module):
         )
 
     def forward(self, data, cur_temp_cons = 0, AV_pos=None, AV_heading=None):
-        if cur_temp_cons != 0:
-            Ts = cur_temp_cons
-            Te = cur_temp_cons + self.hist_steps
-            position = data["agent"]["position"][:, :, Ts:Te].clone() #torch.Size([B, N+1, History_step, 2])
-            heading = data["agent"]["heading"][:, :, Ts:Te].clone()
-            velocity = data["agent"]["velocity"][:, :, Ts:Te].clone()
-            shape = data["agent"]["shape"][:, :, Ts:Te].clone()
-            category = data["agent"]["category"].long().clone()
-            valid_mask = data["agent"]["valid_mask"][:, :, Ts:Te].clone()
-
-            cos_h = torch.cos(AV_heading)[:, None, None]
-            sin_h = torch.sin(AV_heading)[:, None, None]
-            rotate_mat = torch.cat([
-                torch.cat([cos_h, -sin_h], dim=-1),
-                torch.cat([sin_h, cos_h], dim=-1)
-            ], dim=-2)
-
-            position = torch.matmul(position - AV_pos[:, None, None], rotate_mat[:, None])
-            velocity = torch.matmul(velocity, rotate_mat[:, None])
-            heading -= AV_heading[:, None, None]
-        else:
-            T = self.hist_steps
-            position = data["agent"]["position"][:, :, :T] #torch.Size([B, N+1, History_step, 2])
-            heading = data["agent"]["heading"][:, :, :T]
-            velocity = data["agent"]["velocity"][:, :, :T]
-            shape = data["agent"]["shape"][:, :, :T]
-            category = data["agent"]["category"][0].long()
-            valid_mask = data["agent"]["valid_mask"][:, :, :T]
+        T = self.hist_steps
+        position = data["agent"]["position"][:, :, :T] #torch.Size([B, N+1, History_step, 2])
+        heading = data["agent"]["heading"][:, :, :T]
+        velocity = data["agent"]["velocity"][:, :, :T]
+        shape = data["agent"]["shape"][:, :, :T]
+        category = data["agent"]["category"][0].long()
+        valid_mask = data["agent"]["valid_mask"][:, :, :T]
 
         heading_vec = self.to_vector(heading, valid_mask) #torch.Size([B, N+1, History_step -1])
         valid_mask_vec = valid_mask[..., 1:] & valid_mask[..., :-1] #torch.Size([B, N+1, History_step -1])
@@ -109,7 +88,7 @@ class AgentEncoder(nn.Module):
             agent_feature[valid_agent_mask].permute(0, 2, 1).contiguous() #torch.Size([Valid, state, History_step -1])
         )
         x_agent = torch.zeros(bs * A, self.dim, device=position.device)
-        x_agent[valid_agent_mask] = x_agent_tmp
+        x_agent[valid_agent_mask] = x_agent_tmp.to(x_agent.dtype)
         x_agent = x_agent.view(bs, A, self.dim) #torch.Size([B, N+1, 128])
 
         if not self.use_ego_history:

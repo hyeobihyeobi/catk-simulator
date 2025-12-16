@@ -55,14 +55,19 @@ class Preprocessor(object):
         Raises:
             ValueError: If any of the output directories already exist.
         """
+        import shutil
         if os.path.exists(self.path_to_map):
-            raise ValueError(f'The map has been dumped in {self.path_to_map}, please delete the map first')
+            shutil.rmtree(self.path_to_map)
+            # raise ValueError(f'The map has been dumped in {self.path_to_map}, please delete the map first')
         if os.path.exists(self.path_to_route):
-            raise ValueError(f'The route has been dumped in {self.path_to_route}, please delete the route first')
+            shutil.rmtree(self.path_to_route)
+            # raise ValueError(f'The route has been dumped in {self.path_to_route}, please delete the route first')
         if os.path.exists(self.path_to_tl):
-            raise ValueError(f'The traffic light status has been dumped in {self.path_to_tl}, please delete it first')
+            shutil.rmtree(self.path_to_tl)
+            # raise ValueError(f'The traffic light status has been dumped in {self.path_to_tl}, please delete it first')
         if os.path.exists(self.intention_label_path):
-            raise ValueError(f'The intention label has been dumped in {self.intention_label_path}, please delete the intention label first')
+            shutil.rmtree(self.intention_label_path)
+            # raise ValueError(f'The intention label has been dumped in {self.intention_label_path}, please delete the intention label first')
 
         os.makedirs(self.path_to_map, exist_ok=True)
         os.makedirs(self.path_to_route, exist_ok=True)
@@ -131,7 +136,7 @@ class Preprocessor(object):
         """
         Run the preprocessing pipeline.
         """
-        self._check_and_create_dirs()
+        # self._check_and_create_dirs()
 
         print(f'Start dumping whole map, the map will be saved in {self.path_to_map}')
         print(f'Start dumping route, the route will be saved in {self.path_to_route}')
@@ -162,10 +167,31 @@ class Preprocessor(object):
 #                     tasks = self._process_scenario(scen)
 #                     pool.starmap(workers, tasks)
 #                     print(f"Processed batch {batch_id}; elapsed {time.time() - t_start:.2f}s")
+        sampled_list = []
+        from pathlib import Path
+        p = Path("/workspace/catk-simulator/train_data/name.txt")
+        with p.open("r", encoding="utf-8") as f:
+            for line in f:
+                s = line.strip()
+                if not s:
+                    continue
+                sampled_list.append(int(s))
+        
+        from glob import glob
+        from pathlib import Path
+        processed_path = Path("/workspace/catk-simulator/train_preprocessed_path_reference_lines/route")
+        processed_list = [int(p.stem) for p in processed_path.glob("*.npy")]
 
         with mp.Pool(processes=mp.cpu_count()) as pool:
             for batch_id, scen in enumerate(self.data_iter):
                 t_start = time.time()
+                
+                if int(scen.scenario_id[0][0][0]) not in sampled_list:
+                    continue
+                
+                if int(scen.scenario_id[0][0][0]) in processed_list:
+                    continue                
+                    
                 tasks = self._process_scenario(scen)
                 pool.starmap(workers, tasks)
 

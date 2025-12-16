@@ -8,6 +8,74 @@ import os
 from src.ops.crdp import crdp
 from debug_visualisation import DebugVisualisation
 
+from shapely import LineString, Point
+
+def resample_route(routes, ego_future, step=1.0):
+    points = routes[:, :2]
+    diffs = points[1:] - points[:-1]
+    seg_lens = np.linalg.norm(diffs, axis=1)
+    cumdist = np.insert(np.cumsum(seg_lens), 0, 0)
+
+    # 목표 거리 위치들 생성
+    total_len = cumdist[-1]
+    target_d = np.arange(0, total_len, step)
+
+    # x, y 보간
+    new_x = np.interp(target_d, cumdist, points[:, 0])
+    new_y = np.interp(target_d, cumdist, points[:, 1])
+    
+    new_ref_lines = np.stack([new_x, new_y], axis=1)
+    
+    n_points = int(120 / 1.0)
+    position = np.zeros((1, n_points, 2), dtype=np.float64)
+    vector = np.zeros((1, n_points, 2), dtype=np.float64)
+    orientation = np.zeros((1, n_points), dtype=np.float64)
+    valid_mask = np.zeros((1, n_points), dtype=np.bool_)
+    future_projection = np.zeros((1, 8, 2), dtype=np.float64)
+
+    ego_future = ego_future[0, 11:] #(80, 2)
+    
+    if new_ref_lines.shape[0] < 2:
+        pass
+    else:
+        if len(ego_future) > 0:
+            linestring = [LineString(new_ref_lines)]
+            future_samples = ego_future[9::10]  # every 1s
+            future_samples = [Point(xy) for xy in future_samples]
+
+        # for i, line in enumerate(new_ref_lines):
+        subsample = new_ref_lines[: n_points + 1]
+        n_valid = len(subsample)
+        
+        position[0, : n_valid - 1] = subsample[:-1, :2]
+        vector[0, : n_valid - 1] = np.diff(subsample[:, :2], axis=0)
+        orientation[0, : n_valid - 1] = np.arctan2(vector[0, : n_valid - 1, 1], vector[0, : n_valid - 1, 0])
+        valid_mask[0, : n_valid - 1] = True
+        if len(ego_future) > 0:
+            for j, future_sample in enumerate(future_samples):
+                future_projection[0, j, 0] = linestring[0].project(
+                    future_sample
+                )
+                future_projection[0, j, 1] = linestring[0].distance(
+                    future_sample
+                )
+
+    return {
+        "position": position,
+        "vector": vector,
+        "orientation": orientation,
+        "valid_mask": valid_mask,
+        "future_projection": future_projection,
+    }
+
+def worker_route_reference_lines(route,max_route_segments,ego_car_width,path):
+    # reference_lines = resample_route(np.array(route))
+    rdp_route = rdp_downsample_route(np.array(route),float(ego_car_width))
+    reference_lines = resample_route(np.concatenate(rdp_route), np.array(route))
+    # padding
+    # route = padding(route, max_route_segments)
+    saving_data(reference_lines,name=path,mode='np')
+    
 def worker_route(route,max_route_segments,ego_car_width,path):
     route = rdp_downsample_route(np.array(route),float(ego_car_width))
     # padding
@@ -94,10 +162,11 @@ def workers(# roadgraph
             yaw,
             scenario_id,
             intention_lable_path):
-    worker_roadgraph(roadgraph, ids, on_route_mask, max_roadgraph_segments, road_path)
-    worker_tl_status(tl_status, tl_ids, max_tl_segments, tl_path)
-    worker_route(route,max_route_segments,ego_car_width,route_path)
-    intention_label_worker(sdc_xy, yaw, scenario_id, intention_lable_path)
+    # worker_roadgraph(roadgraph, ids, on_route_mask, max_roadgraph_segments, road_path)
+    # worker_tl_status(tl_status, tl_ids, max_tl_segments, tl_path)
+    worker_route_reference_lines(route,max_route_segments,ego_car_width,route_path)
+    # worker_route(route,max_route_segments,ego_car_width,route_path)
+    # intention_label_worker(sdc_xy, yaw, scenario_id, intention_lable_path)
 
 def padding(data, max_len, pad_value=0):
     pad_dim = data[0].shape[-1]
