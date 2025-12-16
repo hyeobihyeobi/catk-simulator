@@ -50,6 +50,6 @@ class FourierEmbedding(nn.Module):
         x = torch.cat([x.cos(), x.sin(), continuous_inputs.unsqueeze(-1)], dim=-1)
         continuous_embs: List[Optional[torch.Tensor]] = [None] * self.input_dim
         for i in range(self.input_dim):
-            continuous_embs[i] = self.mlps[i](x[..., i, :])
+            continuous_embs[i] = self.mlps[i](x[..., i, :].to(torch.float32))
         x = torch.stack(continuous_embs).sum(dim=0)
         return self.to_out(x)

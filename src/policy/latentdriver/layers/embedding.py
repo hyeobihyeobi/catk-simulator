@@ -281,9 +281,9 @@ class PointsEncoder(nn.Module):
         bs, n, _ = x.shape
         device = x.device
 
-        x_valid = self.first_mlp(x[mask]).to(x)  # B n 256
+        x_valid = self.first_mlp(x[mask].to(torch.float32)) #.to(x)  # B n 256
         x_features = torch.zeros(bs, n, 256, device=device)
-        x_features[mask] = x_valid
+        x_features[mask] = x_valid.to(x_features)
 
         pooled_feature = x_features.max(dim=1)[0]
         x_features = torch.cat(

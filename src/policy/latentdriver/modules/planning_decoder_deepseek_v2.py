@@ -93,7 +93,7 @@ class DecoderLayerRouter(nn.Module):
         tgt2 = self.r2r_attn(
             tgt2, tgt2, tgt2, key_padding_mask=tgt_key_padding_mask.repeat(M, 1)
         )[0]
-        tgt2 = torch.nan_to_num(tgt2, nan=0.0)
+        # tgt2 = torch.nan_to_num(tgt2, nan=0.0)
         tgt = tgt + self.dropout1(tgt2)
 
         tgt_tmp = tgt.reshape(bs, M, R, D).transpose(1, 2).reshape(bs * R, M, D)
@@ -391,7 +391,7 @@ class DecoderLayer(nn.Module):
         tgt2 = self.r2r_attn(
             tgt2, tgt2, tgt2, key_padding_mask=tgt_key_padding_mask.repeat(M, 1)
         )[0]
-        tgt2 = torch.nan_to_num(tgt2, nan=0.0)
+        # tgt2 = torch.nan_to_num(tgt2, nan=0.0)
         tgt = tgt + self.dropout1(tgt2)
 
         tgt_tmp = tgt.reshape(bs, M, R, D).transpose(1, 2).reshape(bs * R, M, D)

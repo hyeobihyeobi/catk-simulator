@@ -98,7 +98,8 @@ class AgentEncoder(nn.Module):
             else:
                 ego_feature = data["current_state"][:, : self.state_channel] #x, y, heading, vel, acc, steering_angle, yaw_rate
             x_ego = self.ego_state_emb(ego_feature)
-            x_agent[:, 0] = x_ego
+            # x_agent[:, 0] = x_ego
+            x_agent[torch.arange(bs), data['is_sdc_index']] = x_ego.to(x_agent.dtype)
 
         x_type = self.type_emb(category)
 

@@ -33,7 +33,7 @@ class TransformSamplingSubTraj:
         elif act_key == 'waypoint':
             self.act_key = 'waypoints_actions'
             self.act_dim = 3
-    def __call__(self, traj, si):
+    def __call__(self, traj, reference_lines, si):
         """
         Adapted for new preprocessed data:
         traj = {'obs': <dict of numpy arrays>, 'sdc_gt': ..., 'agent_gt': ...}
@@ -46,9 +46,14 @@ class TransformSamplingSubTraj:
         obs_torch = {}
         for k, v in obs.items():
             obs_torch[k] = v if torch.is_tensor(v) else torch.tensor(v)
+        
+        reference_lines_torch = {}
+        for k, v in reference_lines.item().items():
+            reference_lines_torch[k] = v if torch.is_tensor(v) else torch.tensor(v)
+            
         sdc_gt_torch = None if sdc_gt is None else (sdc_gt if torch.is_tensor(sdc_gt) else torch.tensor(sdc_gt))
         agent_gt_torch = None if agent_gt is None else (agent_gt if torch.is_tensor(agent_gt) else torch.tensor(agent_gt))
-        return obs_torch, sdc_gt_torch, agent_gt_torch
+        return obs_torch, sdc_gt_torch, agent_gt_torch, reference_lines_torch
         # return dict(
         #     states=ss,
         #     actions=aa,
@@ -97,7 +102,8 @@ class WaymoDataLoader(Dataset):
     def __getitem__(self, index):
         name, si = self.full_name_list[index].split('-')[0],self.full_name_list[index].split('-')[1]
         traj = loading_data(os.path.join(self.dir,'data',name))
-        return self.transform(traj,int(si))
+        reference_lines = loading_data(os.path.join("/workspace/catk-simulator/train_preprocessed_path_reference_lines/route", name), mode='np')
+        return self.transform(traj, reference_lines, int(si))
         # return state,action
 
 import hydra

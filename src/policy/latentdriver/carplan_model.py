@@ -273,6 +273,8 @@ class CarPLAN(pl.LightningModule):
         self.no_displacement_for_CLSR = no_displacement_for_CLSR
         self.no_prediction_for_CLSR = no_prediction_for_CLSR
         self.history_steps = history_steps
+        
+        self.is_carplan = is_carplan
 
         self.pos_emb = FourierEmbedding(3, dim, 64)
 
@@ -312,14 +314,15 @@ class CarPLAN(pl.LightningModule):
         )
         self.norm = nn.LayerNorm(dim)
 
-        self.displacement_encoder_blocks = nn.ModuleList(
-            TransformerEncoderLayer(dim=dim, num_heads=num_heads, drop_path=dp)
-            for dp in [x.item() for x in torch.linspace(0, drop_path, encoder_depth)]
-        )
-        self.displacement_norm = nn.LayerNorm(dim)
+        if is_carplan:
+            self.displacement_encoder_blocks = nn.ModuleList(
+                TransformerEncoderLayer(dim=dim, num_heads=num_heads, drop_path=dp)
+                for dp in [x.item() for x in torch.linspace(0, drop_path, encoder_depth)]
+            )
+            self.displacement_norm = nn.LayerNorm(dim)
+            self.dist_predictor = DistPredictor(dim=dim, future_steps=future_steps)
 
         self.agent_predictor = AgentPredictor(dim=dim, future_steps=future_steps)
-        self.dist_predictor = DistPredictor(dim=dim, future_steps=future_steps)
 
         if self.av_cat:
             self.av_cat_x_proj = nn.Linear(2 * dim, dim)
@@ -462,6 +465,8 @@ class CarPLAN(pl.LightningModule):
 
         x_agent = self.agent_encoder(data)
         x_polygon = self.map_encoder(data)
+        
+        M_shape = x_polygon.shape[1]
 
         x = torch.cat([x_agent, x_polygon], dim=1)
 
@@ -475,22 +480,28 @@ class CarPLAN(pl.LightningModule):
         if self.no_prediction_for_CLSR:
             prediction = torch.zeros(bs, A-1, self.future_steps, 6).to(x)
         else:
-            prediction = self.agent_predictor(x[:, 1:A]) #torch.Size([B, N, Future_step, 6])
+            prediction = self.agent_predictor(x[:, :A]) #torch.Size([B, N, Future_step, 6])
 
         x_scene_encoder = None
 
-        for dl in self.displacement_encoder_blocks:
-            x = dl(x, key_padding_mask=key_padding_mask, return_attn_weights=False)
-        x = self.displacement_norm(x)
+        if self.is_carplan:
+            for dl in self.displacement_encoder_blocks:
+                x = dl(x, key_padding_mask=key_padding_mask, return_attn_weights=False)
+            x = self.displacement_norm(x)
 
-        if self.av_cat:
-            cat_av_dist = torch.cat([x[:, 1:], x[:, 0:1].repeat(1, A+M_shape-1, 1)], dim=-1)
-            cat_av_dist = self.av_cat_x_proj(cat_av_dist)
-            dist_prediction = self.dist_predictor(cat_av_dist)
+            if self.av_cat:
+                cat_av_dist = torch.cat([x[:, 1:], x[:, 0:1].repeat(1, A+M_shape-1, 1)], dim=-1)
+                cat_av_dist = self.av_cat_x_proj(cat_av_dist)
+                dist_prediction = self.dist_predictor(cat_av_dist)
+            else:
+                dist_prediction = self.dist_predictor(x[:, 1:])
         else:
-            dist_prediction = self.dist_predictor(x[:, 1:])
+            dist_prediction = None
 
-        ref_line_available = reference_lines["position"].shape[1] > 0
+        # reference_lines[]
+        r_padding_mask = ~(reference_lines["valid_mask"][:bs].any(-1))  # (bs, R)
+        ref_line_available = ~(r_padding_mask.all(-1).all())
+        # ref_line_available = reference_lines["position"].shape[1] > 0
         R, M = reference_lines["position"].shape[1], 12
 
         if ref_line_available:
@@ -501,15 +512,12 @@ class CarPLAN(pl.LightningModule):
             trajectory, probability, pred_scenario_type, q, tgt_route, gates, load, gates_dict, scores_list = None, None, None, None, None, None, None, None, None
 
         # if self.ref_free_traj:
-        ref_free_traj = self.ref_free_decoder(x[:, 1, :]).reshape(
-            bs, 80, 4
-        )
-
-        agent_embeddings_for_prediction = x + x[:, 0:1, :]
-        loc = self.loc_predictor(agent_embeddings_for_prediction[..., :A, :]).view(bs, A, 80, 2)
-        yaw = self.yaw_predictor(agent_embeddings_for_prediction[..., :A, :]).view(bs, A, 80, 2)
-        vel = self.vel_predictor(agent_embeddings_for_prediction[..., :A, :]).view(bs, A, 80, 2)
-        prediction = torch.cat([loc, yaw, vel], dim=-1)
+        # ref_free_traj = self.ref_free_decoder(x[:, 1, :]).reshape(
+        #     bs, 80, 4
+        # )
+        ref_free_traj = self.ref_free_decoder(x[torch.arange(bs), data['is_sdc_index']]).reshape(
+                bs, 80, 4
+            )
 
         out = {
             "trajectory": trajectory,
@@ -554,6 +562,7 @@ class CarPLAN(pl.LightningModule):
                 best_trajectory = output_ref_free_trajectory[:, 0]
         else:
             best_trajectory = None
+            output_ref_free_trajectory = None
 
 #         return out, best_trajectory,latent_dist, rep_dist
         return out, output_ref_free_trajectory,latent_dist, rep_dist
@@ -794,8 +803,8 @@ class CarPLAN(pl.LightningModule):
         B, M, P = roadgraph_sampled.shape[0], roadgraph_sampled.shape[1], sample_points
         # point_position = roadgraph_sampled[..., :2] #.unsqueeze(2)  # (B, M, 1, P, 2)
         # forward difference with zero padding on the last point
-        point_vector = roadgraph_sampled[..., 1:, :2] - roadgraph_sampled[..., :-1, :2]
-        point_position = roadgraph_sampled[:, :, :-1]
+        point_vector = (roadgraph_sampled[..., 1:, :2] - roadgraph_sampled[..., :-1, :2])
+        point_position = roadgraph_sampled[:, :, :-1, :2]
         # zero_tail = torch.zeros_like(diff[..., :1, :])
         # point_vector = torch.cat([diff, zero_tail], dim=-2).unsqueeze(2)  # (B, M, 1, P, 2)
         point_side = torch.zeros((B, M, 1), device=road_obs_arr.device, dtype=torch.int8)
@@ -905,10 +914,10 @@ class CarPLAN(pl.LightningModule):
                 "valid_mask": agent_valid,
             } ,
             "map": {
-                "point_position": point_position,
-                "point_vector": point_vector,
+                "point_position": point_position.unsqueeze(2),
+                "point_vector": point_vector.unsqueeze(2),
                 "point_side": point_side,
-                "point_orientation": point_orientation,
+                "point_orientation": point_orientation.unsqueeze(2),
                 "polygon_center": polygon_center,
                 "polygon_position": polygon_position,
                 "polygon_orientation": polygon_orientation,
@@ -1009,16 +1018,16 @@ class CarPLAN(pl.LightningModule):
 
         return points_interp
 
-    def get_planning_loss(self, future_projection, valid_mask, trajectory, probability, target_valid_mask, target, bs):
+    def get_planning_loss(self, reference_lines, trajectory, probability, target_valid_mask, target, bs):
         """
         trajectory: (bs, R, M, T, 4)
         valid_mask: (bs, T)
         """
         num_valid_points = target_valid_mask.sum(-1)
         endpoint_index = (num_valid_points / 10).long().clamp_(min=0, max=7)  # max 8s
-        r_padding_mask = ~(valid_mask[:bs].any(-1))  # (bs, R)
+        r_padding_mask = ~(reference_lines["valid_mask"][:bs].any(-1))  # (bs, R)
         unvalid_batch_mask = r_padding_mask.all(-1)
-        future_projection = future_projection[:bs][
+        future_projection = reference_lines["future_projection"][:bs][
             torch.arange(bs), :, endpoint_index
         ]
 
@@ -1052,6 +1061,7 @@ class CarPLAN(pl.LightningModule):
         valid_mask: (bs, A-1, T)
         target: (bs, A-1, 6)
         """
+        valid_mask = valid_mask.bool()
         prediction_loss = F.smooth_l1_loss(
             prediction[valid_mask], target[valid_mask], reduction="none"
         ).sum(-1)
@@ -1062,18 +1072,8 @@ class CarPLAN(pl.LightningModule):
     def training_step(self, batch, batch_idx):
 
 #         (ss, position, vector, orientation, valid_mask, future_projection, target, target_vel, target_valid_mask, is_sdc) = batch
-        (ss, sdc_gt, agent_gt) = batch
+        (ss, sdc_gt, agent_gt, reference_lines) = batch
         B, _, _, _ = ss['his_veh_trajs'].shape
-
-        # for bs in range(B):
-        #     for ref_idx, ref_lines in enumerate(position[bs]):
-        #         ref_valid_mask = valid_mask[bs, ref_idx]
-        #         ref_lines_valid = ref_lines[ref_valid_mask]
-        #         diffs = ref_lines_valid[1:] - ref_lines_valid[:-1]           # (N-1, 2)
-        #         dists = torch.norm(diffs, dim=1)             # 각 구간 거리
-        #         total_length = dists.sum()
-        #         if total_length > 120:
-        #             valid_mask[bs, ref_idx] = False
 
         import matplotlib.pyplot as plt
         # route_feat = ss[:, :, :20]
@@ -1109,7 +1109,7 @@ class CarPLAN(pl.LightningModule):
         #     plt.savefig(f"/home/jyyun/workshop/LatentDriver/vis/scene/{bs}_scene.png")
         #     plt.close()
 
-        out, action_preds,rep_dist, latent_dist = self.forward(ss) #, position, vector, orientation, valid_mask, future_projection)
+        out, action_preds,rep_dist, latent_dist = self.forward(ss, reference_lines) #, position, vector, orientation, valid_mask, future_projection)
 
         trajectory, probability, prediction = (
             out["trajectory"][:B],
@@ -1118,9 +1118,13 @@ class CarPLAN(pl.LightningModule):
         )
         ref_free_trajectory = out.get("ref_free_trajectory", None)
 
-        targets_pos = target
-        # target_valid_mask = target_valid_mask
-        targets_vel = target_vel
+        # vehicle_obs = jnp.concatenate([xy, width, length, yaw, vel_xy, acc_xy, valid_mask], axis=-1)
+        
+        target = torch.cat((sdc_gt.unsqueeze(1), agent_gt), dim=1)
+        target_heading = target[..., 4:5]
+        targets_pos = torch.cat((target[..., :2], target_heading), dim=-1)
+        valid_mask = target[..., -1]
+        targets_vel = target[..., 5:7]
 
         target = torch.cat(
             [
@@ -1134,23 +1138,29 @@ class CarPLAN(pl.LightningModule):
         )
 
         ego_reg_loss, ego_cls_loss = self.get_planning_loss(
-            future_projection, valid_mask, trajectory, probability.to(torch.float32), target_valid_mask[is_sdc], target[is_sdc], B
+            reference_lines, trajectory, probability.to(torch.float32), valid_mask[:, 0], target[:, 0], B
         )
         # ego_reg_loss, ego_cls_loss = ego_reg_loss.new_zeros(1), ego_reg_loss.new_zeros(1)
         if ref_free_trajectory is not None:
             ego_ref_free_reg_loss = F.smooth_l1_loss(
                 ref_free_trajectory[:B],
-                target[is_sdc][:, :, : ref_free_trajectory.shape[-1]],
+                target[:, 0, :, : ref_free_trajectory.shape[-1]],
                 reduction="none",
             ).sum(-1)
             ego_ref_free_reg_loss = (
-                ego_ref_free_reg_loss * target_valid_mask[is_sdc]
-            ).sum() / target_valid_mask[is_sdc].sum()
+                ego_ref_free_reg_loss * valid_mask[:, 0]
+            ).sum() / valid_mask[:, 0].sum()
         else:
             ego_ref_free_reg_loss = ego_reg_loss.new_zeros(1)
 
+        idx = torch.arange(prediction.shape[1], device=prediction.device).unsqueeze(0).expand(B, -1)
+        av_index = torch.where(ss['vehicle_segments'][:, :, 0] == 4)[1]
+        idx = idx[idx != av_index.unsqueeze(1)].view(B, prediction.shape[1] - 1)
+        not_av_idx = idx[:, :, None, None].expand(-1, -1, prediction.shape[2], prediction.shape[3])    
+        prediction = prediction.gather(1, not_av_idx)
+        
         prediction_loss = self.get_prediction_loss(
-            prediction[agent_mask], target_valid_mask[agent_mask], target[agent_mask]
+            prediction, valid_mask[:, 1:], target[:, 1:]
         )
         # prediction_loss = ego_reg_loss.new_zeros(1)
 

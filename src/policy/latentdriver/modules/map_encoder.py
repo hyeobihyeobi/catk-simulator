@@ -131,22 +131,6 @@ class MapEncoder(nn.Module):
         point_orientation = data["map"]["point_orientation"].clone()
         valid_mask = data["map"]["valid_mask"]
 
-        if cur_temp_cons != 0 :
-            cos_h = torch.cos(AV_cur_heading)[:, None, None]
-            sin_h = torch.sin(AV_cur_heading)[:, None, None]
-            rotate_mat = torch.cat([
-                torch.cat([cos_h, -sin_h], dim=-1),
-                torch.cat([sin_h, cos_h], dim=-1)
-            ], dim=-2)
-
-            point_position = torch.matmul(point_position - AV_pos[:, None, None, None], rotate_mat[:, None, None])
-            point_vector = torch.matmul(point_vector, rotate_mat[:, None, None])
-            point_orientation -= AV_cur_heading[:, None, None, None]
-            polygon_center[...,:2] = torch.matmul(polygon_center[...,:2] - AV_pos[:, None], rotate_mat)
-            polygon_center[..., 2] -= AV_cur_heading[:, None]
-            # point_orientation = (point_orientation + math.pi) % (2 * math.pi) - math.pi
-            # polygon_center[..., 2] = (polygon_center[..., 2] + math.pi) % (2 * math.pi) - math.pi
-
         if self.use_lane_boundary:
             polygon_feature = torch.cat(
                 [
